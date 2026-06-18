@@ -33,7 +33,7 @@ const calcItem = (item: BillItem): BillItem => {
   const discAmt = base * (item.discount_percent / 100);
   const afterDisc = base - discAmt;
   const taxAmt = afterDisc * (item.tax_percent / 100);
-  return { ...item, amount_before_tax: Math.round(afterDisc * 100) / 100, tax_amount: Math.round(taxAmt * 100) / 100, total_price: Math.round((afterDisc + taxAmt) * 100) / 100 };
+  return { ...item, amount_before_tax: Math.round(afterDisc), tax_amount: Math.round(taxAmt), total_price: Math.round(afterDisc + taxAmt) };
 };
 
 const Purchase: React.FC = () => {
@@ -54,6 +54,8 @@ const Purchase: React.FC = () => {
   const [editingBill, setEditingBill] = useState<Bill|null>(null);
   const [editingVendor, setEditingVendor] = useState<Vendor|null>(null);
   const [saving, setSaving] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState('');
   const [deleting, setDeleting] = useState<string|null>(null);
   const [toast, setToast] = useState<{msg:string;type:'success'|'error'}|null>(null);
   const [compareProduct, setCompareProduct] = useState('');
@@ -94,7 +96,7 @@ const Purchase: React.FC = () => {
     if(!billForm.bill_number||!billForm.vendor_name) { showToast('Bill number and vendor required.','error'); return; }
     setSaving(true);
     const total = items.filter(i=>i.product_name).reduce((s,i)=>s+i.total_price,0);
-    const payload = { ...billForm, total_amount: Math.round(total*100)/100 };
+    const payload = { ...billForm, total_amount: Math.round(total) };
     let billId = editingBill?.id;
     if(editingBill?.id) {
       await supabase.from('purchase_bills').update(payload).eq('id',editingBill.id);
@@ -116,6 +118,112 @@ const Purchase: React.FC = () => {
     showToast(editingBill?'Bill updated!':'Bill created & inventory updated!','success');
     setShowBillModal(false); setEditingBill(null); setBillForm(emptyBill); setItems([emptyItem()]);
     fetchData(); setSaving(false);
+  };
+
+  // ── Scan bill photo with AI ───────────────────────────────────────────
+  const fileToBase64 = (file: File): Promise<{data:string;mediaType:string}> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        const base64 = result.split(',')[1];
+        resolve({ data: base64, mediaType: file.type });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const scanBillPhoto = async (file: File) => {
+    setScanning(true);
+    setScanError('');
+    try {
+      const { data: base64, mediaType } = await fileToBase64(file);
+      const prompt = `You are reading a GST purchase invoice/bill photo. Extract ALL details and respond with ONLY valid JSON, no markdown, no explanation, no backticks. Use this exact structure:
+{
+  "bill_number": "vendor's invoice number (e.g. ST/2603/2025-26)",
+  "vendor_name": "vendor company name",
+  "vendor_gstin": "vendor GSTIN if visible",
+  "buyer_gstin": "buyer/our GSTIN if visible",
+  "bill_date": "YYYY-MM-DD format",
+  "due_date": "",
+  "transport": "transport mode if mentioned e.g. CAR, TRUCK",
+  "vehicle_no": "vehicle number if mentioned",
+  "place_of_supply": "place of supply with state code if mentioned",
+  "eway_bill": "e-way bill number if mentioned",
+  "notes": "",
+  "items": [
+    {
+      "product_name": "description of goods",
+      "hsn_code": "HSN/SAC code",
+      "quantity": 0,
+      "unit": "Pcs",
+      "unit_price": 0,
+      "discount_percent": 0,
+      "tax_percent": 18
+    }
+  ]
+}
+If a field is not visible on the invoice, use empty string "" for text fields or 0 for numbers. For unit, map to one of: Pcs, Kg, Metre, Litre, Box, Set, Pair, Sqft, Bundle, Dozen. Extract every single line item from the items table. Be precise with numbers.`;
+
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 4000,
+          messages: [{
+            role: "user",
+            content: [
+              { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
+              { type: "text", text: prompt }
+            ]
+          }]
+        })
+      });
+      const result = await response.json();
+      const textBlock = result.content?.find((c:any)=>c.type==='text');
+      if(!textBlock) throw new Error('No response from AI');
+      let cleaned = textBlock.text.trim().replace(/^```json\s*/,'').replace(/^```\s*/,'').replace(/```\s*$/,'');
+      const extracted = JSON.parse(cleaned);
+
+      // Fill bill form
+      setBillForm(prev => ({
+        ...prev,
+        bill_number: extracted.bill_number || prev.bill_number,
+        vendor_name: extracted.vendor_name || prev.vendor_name,
+        vendor_gstin: extracted.vendor_gstin || prev.vendor_gstin,
+        buyer_gstin: extracted.buyer_gstin || prev.buyer_gstin,
+        bill_date: extracted.bill_date || prev.bill_date,
+        transport: extracted.transport || prev.transport,
+        vehicle_no: extracted.vehicle_no || prev.vehicle_no,
+        place_of_supply: extracted.place_of_supply || prev.place_of_supply,
+        eway_bill: extracted.eway_bill || prev.eway_bill,
+      }));
+
+      // Fill items
+      if(extracted.items && extracted.items.length > 0) {
+        const newItems = extracted.items.map((it:any) => calcItem({
+          product_name: it.product_name || '',
+          hsn_code: it.hsn_code || '',
+          quantity: Number(it.quantity) || 1,
+          unit: it.unit || 'Pcs',
+          unit_price: Number(it.unit_price) || 0,
+          discount_percent: Number(it.discount_percent) || 0,
+          amount_before_tax: 0,
+          tax_percent: Number(it.tax_percent) || 18,
+          tax_amount: 0,
+          total_price: 0,
+          add_to_inventory: true,
+        }));
+        setItems(newItems);
+      }
+      showToast('Bill scanned! Review details below.','success');
+    } catch(e:any) {
+      setScanError('Could not read bill. Please fill manually or try a clearer photo.');
+      showToast('Scan failed — fill manually.','error');
+    }
+    setScanning(false);
   };
 
   const saveVendor = async () => {
@@ -502,6 +610,28 @@ const Purchase: React.FC = () => {
               <button onClick={()=>{setShowBillModal(false);setEditingBill(null);}} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center"><X size={14}/></button>
             </div>
             <div className="p-5 space-y-5">
+
+              {/* AI Photo Scan */}
+              {!editingBill && (
+                <div className={`rounded-xl p-4 border-2 border-dashed transition-colors ${scanning?'border-violet-300 bg-violet-50':'border-violet-200 bg-violet-50/50 hover:bg-violet-50'}`}>
+                  <input id="bill-photo-input" type="file" accept="image/*,.pdf" className="hidden"
+                    onChange={e=>{ const f=e.target.files?.[0]; if(f) scanBillPhoto(f); }}/>
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center text-xl">📸</div>
+                      <div>
+                        <p className="font-semibold text-gray-800 text-sm">Scan Bill Photo with AI</p>
+                        <p className="text-xs text-gray-500">Upload a photo of the invoice — fields fill in automatically</p>
+                      </div>
+                    </div>
+                    <button onClick={()=>document.getElementById('bill-photo-input')?.click()} disabled={scanning}
+                      className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium hover:bg-violet-700 disabled:opacity-60 whitespace-nowrap">
+                      {scanning?<><Loader size={14} className="animate-spin"/> Reading bill...</>:<>📷 Upload Photo</>}
+                    </button>
+                  </div>
+                  {scanError && <p className="text-xs text-red-500 mt-2">{scanError}</p>}
+                </div>
+              )}
 
               {/* Section 1: Bill Info */}
               <div>
