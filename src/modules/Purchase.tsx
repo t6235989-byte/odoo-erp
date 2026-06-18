@@ -182,6 +182,8 @@ If a field is not visible on the invoice, use empty string "" for text fields or
         })
       });
       const result = await response.json();
+      if(result.error) throw new Error(result.error.message || JSON.stringify(result.error));
+      if(!response.ok) throw new Error(`API error ${response.status}: ${JSON.stringify(result)}`);
       const textBlock = result.content?.find((c:any)=>c.type==='text');
       if(!textBlock) throw new Error('No response from AI');
       let cleaned = textBlock.text.trim().replace(/^```json\s*/,'').replace(/^```\s*/,'').replace(/```\s*$/,'');
@@ -220,7 +222,8 @@ If a field is not visible on the invoice, use empty string "" for text fields or
       }
       showToast('Bill scanned! Review details below.','success');
     } catch(e:any) {
-      setScanError('Could not read bill. Please fill manually or try a clearer photo.');
+      console.error('Scan error:', e);
+      setScanError('Could not read bill: ' + (e?.message || 'Unknown error') + '. Please fill manually or try a clearer photo.');
       showToast('Scan failed — fill manually.','error');
     }
     setScanning(false);
