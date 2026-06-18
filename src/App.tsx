@@ -18,6 +18,9 @@ import Recruitment from './modules/Recruitment';
 import TimeOffModule from './modules/TimeOff';
 import Appraisals from './modules/Appraisals';
 import Attendance from './modules/Attendance';
+import Purchase from './modules/Purchase';
+import PartyLedger from './modules/PartyLedger';
+import Backup from './modules/Backup';
 
 const moduleConfig: Record<ModuleId, { title: string; subtitle: string; color: string }> = {
   dashboard:    { title: '📊 Main Dashboard',      subtitle: 'Overview of all business operations',     color: '#7C3AED' },
@@ -33,6 +36,9 @@ const moduleConfig: Record<ModuleId, { title: string; subtitle: string; color: s
   livechat:     { title: '💬 Live Chat',            subtitle: 'Customer support & real-time messaging',  color: '#6366F1' },
   recruitment:  { title: '🧑‍💼 Recruitment',       subtitle: 'Job applications, interviews & hiring pipeline', color: '#7C3AED' },
   timeoff:      { title: '🌴 Time Off',             subtitle: 'Leave requests, approvals & attendance',  color: '#2563EB' },
+  backup:       { title: '🗄 Data Backup', subtitle: 'Export all data to Excel & PDF', color: '#7C3AED' },
+  partyledger:  { title: '📒 Party Ledger', subtitle: 'Customer accounts, dues & statement', color: '#7C3AED' },
+  purchase:     { title: '🛒 Purchase', subtitle: 'Bills, vendor payments & price comparison', color: '#2563EB' },
   attendance:   { title: '🕐 Attendance & Payroll', subtitle: 'Daily attendance, work tracking & salary ledger', color: '#059669' },
   appraisals:   { title: '⭐ Appraisals',           subtitle: 'Employee performance reviews & feedback',  color: '#D97706' },
 };
@@ -54,6 +60,9 @@ const ModuleRenderer: React.FC<{ module: ModuleId }> = ({ module }) => {
     case 'timeoff':       return <TimeOffModule />;
     case 'appraisals':    return <Appraisals />;
     case 'attendance':    return <Attendance />;
+    case 'purchase':      return <Purchase />;
+    case 'partyledger':   return <PartyLedger />;
+    case 'backup':        return <Backup />;
     default:              return <Dashboard />;
   }
 };

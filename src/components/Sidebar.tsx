@@ -2,6 +2,9 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import {
   Clock as ClockIcon,
+  ShoppingCart as PurchaseIcon,
+  BookOpen as LedgerIcon,
+  HardDrive as BackupIcon,
   LayoutDashboard, Package, DollarSign, ShoppingCart,
   Factory, Store, Users, FolderKanban,
   Megaphone, Wrench, MessageCircle, ChevronLeft, ChevronRight,
@@ -27,6 +30,9 @@ const navGroups = [
     label: 'Operations',
     items: [
       { id: 'inventory' as ModuleId, label: 'Inventory', icon: Package, color: '#EA580C', bg: '#FFEDD5' },
+      { id: 'purchase' as ModuleId, label: 'Purchase', icon: PurchaseIcon, color: '#2563EB', bg: '#DBEAFE' },
+      { id: 'partyledger' as ModuleId, label: 'Party Ledger', icon: LedgerIcon, color: '#7C3AED', bg: '#EDE9FE' },
+      { id: 'backup' as ModuleId, label: 'Backup & Export', icon: BackupIcon, color: '#7C3AED', bg: '#EDE9FE' },
       { id: 'accounting' as ModuleId, label: 'Accounting', icon: DollarSign, color: '#16A34A', bg: '#DCFCE7' },
       { id: 'sales' as ModuleId, label: 'Sales & CRM', icon: ShoppingCart, color: '#2563EB', bg: '#DBEAFE' },
       { id: 'manufacturing' as ModuleId, label: 'Manufacturing', icon: Factory, color: '#DC2626', bg: '#FEE2E2' },

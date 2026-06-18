@@ -13,7 +13,10 @@ export type ModuleId =
   | 'recruitment'
   | 'timeoff'
   | 'appraisals'
-  | 'attendance';
+  | 'attendance'
+  | 'purchase'
+  | 'partyledger'
+  | 'backup';
 
 export interface NavItem {
   id: ModuleId;

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Clock, Calendar, TrendingUp, FileText, Plus, X, Loader,
+  Clock, Calendar, TrendingUp, FileText, Plus, X, Loader, Eye,
   Edit2, Trash2, Download, ChevronLeft, ChevronRight, CheckCircle,
   AlertCircle, User, Briefcase, IndianRupee
 } from 'lucide-react';
@@ -82,6 +82,13 @@ const Attendance: React.FC = () => {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [payForm, setPayForm] = useState<Payment>({ employee_name: 'RIHAN', payment_date: new Date().toISOString().split('T')[0], amount: 0, month: 'June', year: 2026, note: '' });
   const [payType, setPayType] = useState<'payment' | 'return'>('payment');
+
+  // Documents state
+  const [docs, setDocs] = useState<any[]>([]);
+  const [showDocModal, setShowDocModal] = useState(false);
+  const [docForm, setDocForm] = useState({ doc_name: '', doc_type: 'Aadhar Card', notes: '' });
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(today.getMonth());
   const [selectedYear, setSelectedYear] = useState(today.getFullYear());
@@ -136,6 +143,7 @@ const Attendance: React.FC = () => {
     setTasks(tsk || []);
     setEmployees(emp || []);
     setPayments((await supabase.from('salary_payments').select('*').eq('employee_name', selectedEmp).order('payment_date')).data || []);
+    setDocs((await supabase.from('employee_documents').select('*').eq('employee_name', selectedEmp).order('created_at', { ascending: false })).data || []);
     setLoading(false);
   };
 
@@ -224,6 +232,50 @@ const Attendance: React.FC = () => {
       showToast(msg, 'success'); setShowPaymentModal(false); fetchData();
     }
     setSaving(false);
+  };
+
+  // ── Upload Document ───────────────────────────────────────────────────
+  const uploadDoc = async () => {
+    if (!docFile || !docForm.doc_name) { showToast('File and name required.', 'error'); return; }
+    setUploadingDoc(true);
+    try {
+      const fileExt = docFile.name.split('.').pop();
+      const fileName = `${selectedEmp}_${Date.now()}.${fileExt}`;
+      const { error: upErr } = await supabase.storage.from('employee-docs').upload(fileName, docFile);
+      if (upErr) { showToast('Upload failed: ' + upErr.message, 'error'); setUploadingDoc(false); return; }
+      const { data: urlData } = supabase.storage.from('employee-docs').getPublicUrl(fileName);
+      await supabase.from('employee_documents').insert([{
+        employee_name: selectedEmp,
+        doc_name: docForm.doc_name,
+        doc_type: docForm.doc_type,
+        file_name: docFile.name,
+        file_url: urlData.publicUrl,
+        file_size: (docFile.size / 1024).toFixed(0) + ' KB',
+        notes: docForm.notes,
+      }]);
+      showToast('Document uploaded!', 'success');
+      setShowDocModal(false);
+      setDocForm({ doc_name: '', doc_type: 'Aadhar Card', notes: '' });
+      setDocFile(null);
+      fetchData();
+    } catch(e) { showToast('Failed to upload.', 'error'); }
+    setUploadingDoc(false);
+  };
+
+  const deleteDoc = async (id: string, fileUrl: string) => {
+    const fileName = fileUrl.split('/').pop();
+    if (fileName) await supabase.storage.from('employee-docs').remove([fileName]);
+    await supabase.from('employee_documents').delete().eq('id', id);
+    showToast('Document deleted.', 'success'); fetchData();
+  };
+
+  const docTypes = ['Aadhar Card', 'PAN Card', 'Passport', 'Driving License', 'Offer Letter', 'Contract', 'Certificate', 'Marksheet', 'Photo', 'Bank Details', 'Other'];
+
+  const getFileIcon = (name: string) => {
+    const ext = name.split('.').pop()?.toLowerCase();
+    if (ext === 'pdf') return '📄';
+    if (['jpg','jpeg','png','gif','webp'].includes(ext||'')) return '🖼️';
+    return '📎';
   };
 
   const deletePayment = async (id: string) => {
@@ -444,7 +496,7 @@ const Attendance: React.FC = () => {
 
       {/* Tabs */}
       <div className="flex gap-2 flex-wrap">
-        {([['daily','📅 Daily Log'],['monthly','📆 Calendar'],['tasks','✅ Work Tasks'],['ledger','💰 Salary Ledger']] as const).map(([id, label]) => (
+        {([['daily','📅 Daily Log'],['monthly','📆 Calendar'],['tasks','✅ Work Tasks'],['ledger','💰 Salary Ledger'],['documents','📁 Documents']] as const).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${tab === id ? 'bg-violet-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}>{label}</button>
         ))}
       </div>
@@ -753,7 +805,111 @@ const Attendance: React.FC = () => {
         </div>
       )}
 
-            {/* ATTENDANCE MODAL */}
+            {/* DOCUMENTS TAB */}
+      {tab === 'documents' && (
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+            <h3 className="font-bold text-gray-800">Documents — {selectedEmp} <span className="text-violet-500">({docs.length})</span></h3>
+            <button onClick={() => setShowDocModal(true)}
+              className="flex items-center gap-1 px-3 py-1.5 bg-violet-600 text-white rounded-lg text-sm hover:bg-violet-700">
+              <Plus size={13} /> Upload Document
+            </button>
+          </div>
+          {docs.length === 0 ? (
+            <div className="text-center py-16 text-gray-400">
+              <div className="text-5xl mb-3">📁</div>
+              <p className="font-medium">No documents uploaded yet</p>
+              <p className="text-sm mt-1">Upload Aadhar, PAN, contracts, certificates etc.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+              {docs.map((doc: any) => (
+                <div key={doc.id} className="flex items-start gap-3 p-4 border border-gray-100 rounded-xl hover:shadow-md transition-shadow">
+                  <div className="text-3xl flex-shrink-0">{getFileIcon(doc.file_name)}</div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-800 truncate">{doc.doc_name}</p>
+                    <p className="text-xs text-gray-400">{doc.doc_type} · {doc.file_size}</p>
+                    <p className="text-xs text-gray-400">{doc.file_name}</p>
+                    {doc.notes && <p className="text-xs text-gray-500 italic mt-1">"{doc.notes}"</p>}
+                    <p className="text-xs text-gray-400">{new Date(doc.created_at).toLocaleDateString('en-IN')}</p>
+                  </div>
+                  <div className="flex flex-col gap-1 flex-shrink-0">
+                    <a href={doc.file_url} target="_blank" rel="noreferrer"
+                      className="w-7 h-7 bg-blue-50 rounded-lg flex items-center justify-center text-blue-500 hover:bg-blue-100" title="View">
+                      <Eye size={13}/>
+                    </a>
+                    <a href={doc.file_url} download={doc.file_name}
+                      className="w-7 h-7 bg-green-50 rounded-lg flex items-center justify-center text-green-500 hover:bg-green-100" title="Download">
+                      <Download size={13}/>
+                    </a>
+                    <button onClick={() => deleteDoc(doc.id, doc.file_url)}
+                      className="w-7 h-7 bg-red-50 rounded-lg flex items-center justify-center text-red-400 hover:bg-red-100">
+                      <Trash2 size={11}/>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* DOCUMENT UPLOAD MODAL */}
+      <AnimatePresence>{showDocModal && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4"
+          onClick={e => { if (e.target === e.currentTarget) setShowDocModal(false); }}>
+          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h2 className="font-bold text-gray-800">📁 Upload Document — {selectedEmp}</h2>
+              <button onClick={() => setShowDocModal(false)} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center"><X size={14}/></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Document Name *</label>
+              <input value={docForm.doc_name} onChange={e => setDocForm({ ...docForm, doc_name: e.target.value })}
+                placeholder="e.g. Aadhar Card - Front" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"/></div>
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Document Type</label>
+              <select value={docForm.doc_type} onChange={e => setDocForm({ ...docForm, doc_type: e.target.value })}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200">
+                {docTypes.map(t => <option key={t}>{t}</option>)}
+              </select></div>
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Upload File * (PDF, JPG, PNG)</label>
+              <div className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors ${docFile ? 'border-violet-400 bg-violet-50' : 'border-gray-200 hover:border-violet-300'}`}
+                onClick={() => document.getElementById('doc-file-input')?.click()}>
+                <input id="doc-file-input" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" className="hidden"
+                  onChange={e => setDocFile(e.target.files?.[0] || null)}/>
+                {docFile ? (
+                  <div>
+                    <p className="text-2xl mb-1">{getFileIcon(docFile.name)}</p>
+                    <p className="text-sm font-medium text-violet-700">{docFile.name}</p>
+                    <p className="text-xs text-gray-400">{(docFile.size/1024).toFixed(0)} KB</p>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-3xl mb-1">📎</p>
+                    <p className="text-sm text-gray-500">Click to select file</p>
+                    <p className="text-xs text-gray-400">PDF, JPG, PNG supported</p>
+                  </div>
+                )}
+              </div></div>
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Notes (optional)</label>
+              <input value={docForm.notes} onChange={e => setDocForm({ ...docForm, notes: e.target.value })}
+                placeholder="e.g. Original verified" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"/></div>
+            </div>
+            <div className="flex justify-end gap-2 p-5 border-t border-gray-100">
+              <button onClick={() => setShowDocModal(false)} className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600">Cancel</button>
+              <button onClick={uploadDoc} disabled={uploadingDoc || !docFile || !docForm.doc_name}
+                className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium hover:bg-violet-700 disabled:opacity-60">
+                {uploadingDoc && <Loader size={13} className="animate-spin"/>}
+                {uploadingDoc ? 'Uploading...' : 'Upload'}
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}</AnimatePresence>
+
+      {/* ATTENDANCE MODAL */}
       <AnimatePresence>{showAttModal && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setShowAttModal(false); }}>
           <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
