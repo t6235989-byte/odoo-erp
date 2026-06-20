@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Download, FileText, Table, CheckCircle, Loader, Database, Shield, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { formatDate, formatDateTime } from '../utils/cn';
 import * as XLSX from 'xlsx';
 
 type BackupStatus = 'idle' | 'fetching' | 'done' | 'error';
@@ -162,7 +163,13 @@ const Backup: React.FC = () => {
           <table>
             <thead><tr>${cols.map(h=>`<th>${h.replace(/_/g,' ').toUpperCase()}</th>`).join('')}</tr></thead>
             <tbody>
-              ${rows.slice(0,maxRows).map(row=>`<tr>${cols.map(h=>`<td>${row[h]??'-'}</td>`).join('')}</tr>`).join('')}
+              ${rows.slice(0,maxRows).map(row=>`<tr>${cols.map(h=>{
+                const v = row[h];
+                const isTimestamp = typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v);
+                const isPlainDate = typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+                const display = isTimestamp ? formatDateTime(v) : isPlainDate ? formatDate(v) : (v??'-');
+                return `<td>${display}</td>`;
+              }).join('')}</tr>`).join('')}
               ${rows.length>maxRows?`<tr><td colspan="${cols.length}" style="text-align:center;color:#9CA3AF">... and ${rows.length-maxRows} more records (see Excel for full data)</td></tr>`:''}
             </tbody>
           </table>

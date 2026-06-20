@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ShoppingCart, TrendingDown, AlertCircle, Plus, X, Loader, Edit2, Trash2, IndianRupee, ChevronDown, ChevronUp, Download, FileText } from 'lucide-react';
 import StatCard from '../components/StatCard';
 import { supabase } from '../lib/supabase';
+import { formatDate } from '../utils/cn';
 
 type Vendor = { id?: string; name: string; phone: string; email: string; address: string; gstin?: string; };
 type Bill = {
@@ -512,8 +513,8 @@ If a field is not visible on the invoice, use empty string "" for text fields or
       <div class="info-box">
         <div class="info-label">INVOICE DETAILS</div>
         <div class="info-row"><span>Invoice No:</span><strong>${bill.bill_number}</strong></div>
-        <div class="info-row"><span>Date:</span><span>${bill.bill_date}</span></div>
-        <div class="info-row"><span>Due Date:</span><span>${bill.due_date||'N/A'}</span></div>
+        <div class="info-row"><span>Date:</span><span>${formatDate(bill.bill_date)}</span></div>
+        <div class="info-row"><span>Due Date:</span><span>${bill.due_date?formatDate(bill.due_date):'N/A'}</span></div>
         <div class="info-row"><span>Our GSTIN:</span><span>${bill.buyer_gstin||'N/A'}</span></div>
         <div class="info-row"><span>Place of Supply:</span><span>${bill.place_of_supply||'N/A'}</span></div>
       </div>
@@ -697,7 +698,7 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                             {isOverdue&&<span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-600">⚠ Overdue</span>}
                           </div>
                           <p className="text-sm text-gray-600">🏪 {bill.vendor_name} {bill.vendor_gstin&&`· GST: ${bill.vendor_gstin}`} {getVendorPhone(bill.vendor_name)&&`· 📞 ${getVendorPhone(bill.vendor_name)}`}</p>
-                          <p className="text-xs text-gray-400">📅 {bill.bill_date} {bill.due_date&&`· Due: ${bill.due_date}`} {bill.place_of_supply&&`· ${bill.place_of_supply}`}</p>
+                          <p className="text-xs text-gray-400">📅 {formatDate(bill.bill_date)} {bill.due_date&&`· Due: ${formatDate(bill.due_date)}`} {bill.place_of_supply&&`· ${bill.place_of_supply}`}</p>
                         </div>
                         <div className="text-right">
                           <p className="font-bold text-gray-800">₹{bill.total_amount.toLocaleString('en-IN')}</p>
@@ -754,7 +755,7 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                             <p className="text-xs font-bold text-gray-600 mb-1">💰 Payments:</p>
                             {bPays.map((p,i)=>(
                               <div key={i} className="flex justify-between items-center text-xs py-1 border-b border-gray-100">
-                                <span className="text-gray-500">{p.payment_date} {p.note?`· ${p.note}`:''}</span>
+                                <span className="text-gray-500">{formatDate(p.payment_date)} {p.note?`· ${p.note}`:''}</span>
                                 <div className="flex items-center gap-2">
                                   <span className="font-bold text-green-600">₹{p.amount.toLocaleString('en-IN')}</span>
                                   <button onClick={()=>{ setEditingPayment(p); setPayForm({...p}); setShowPayModal(true); }} className="w-5 h-5 bg-blue-50 rounded flex items-center justify-center text-blue-500"><Edit2 size={9}/></button>
@@ -848,7 +849,7 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                           <div className="w-full bg-gray-200 rounded-full h-1.5">
                             <div className="h-1.5 rounded-full" style={{width:`${Math.max(pct,5)}%`,background:isMin?'#16A34A':isMax?'#DC2626':'#9CA3AF'}}/>
                           </div>
-                          <p className="text-xs text-gray-400 mt-0.5">Last: {p.date}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">Last: {formatDate(p.date)}</p>
                         </div>
                       </div>
                     );

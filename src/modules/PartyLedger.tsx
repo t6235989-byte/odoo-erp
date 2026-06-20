@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Users, TrendingUp, TrendingDown, IndianRupee, Plus, X, Loader, Edit2, Trash2, Download, ChevronLeft } from 'lucide-react';
 import StatCard from '../components/StatCard';
 import { supabase } from '../lib/supabase';
+import { formatDate } from '../utils/cn';
 
 type Party = { id?: string; name: string; phone: string; email: string; address: string; party_type: string; };
 type Txn = { id?: string; party_id?: string; party_name: string; transaction_date: string; type: string; amount: number; description: string; reference: string; };
@@ -135,7 +136,7 @@ const PartyLedger: React.FC = () => {
           const isDebit = t.type==='Sale';
           if(isDebit) running+=t.amount; else running-=t.amount;
           return `<tr>
-            <td>${t.transaction_date}</td>
+            <td>${formatDate(t.transaction_date)}</td>
             <td>${t.type}</td>
             <td>${t.description||'-'}</td>
             <td>${t.reference||'-'}</td>
@@ -286,7 +287,7 @@ const PartyLedger: React.FC = () => {
                         const style = txnStyle[t.type]||{bg:'#F3F4F6',color:'#6B7280'};
                         return (
                           <tr key={t.id} className="border-b border-gray-50 hover:bg-gray-50">
-                            <td className="py-2.5 text-gray-500 text-xs">{t.transaction_date}</td>
+                            <td className="py-2.5 text-gray-500 text-xs">{formatDate(t.transaction_date)}</td>
                             <td className="py-2.5"><span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{background:style.bg,color:style.color}}>{t.type}</span></td>
                             <td className="py-2.5 text-gray-600 text-xs">{t.description||'-'}</td>
                             <td className="py-2.5 text-gray-400 text-xs font-mono">{t.reference||'-'}</td>

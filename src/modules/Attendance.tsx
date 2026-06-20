@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import StatCard from '../components/StatCard';
 import { supabase } from '../lib/supabase';
+import { formatDate } from '../utils/cn';
 
 type AttendanceRecord = {
   id?: string;
@@ -74,7 +75,7 @@ const emptyTask: WorkTask = {
 };
 
 const Attendance: React.FC = () => {
-  const [tab, setTab] = useState<'daily' | 'monthly' | 'tasks' | 'ledger'>('daily');
+  const [tab, setTab] = useState<'daily' | 'monthly' | 'tasks' | 'ledger' | 'documents'>('daily');
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [tasks, setTasks] = useState<WorkTask[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -346,7 +347,7 @@ const Attendance: React.FC = () => {
             const day = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
             const cls = a.status === 'Present' || a.status === 'Work From Home' ? 'present' : 'absent';
             return `<tr>
-              <td>${a.date}</td><td>${day}</td>
+              <td>${formatDate(a.date)}</td><td>${day}</td>
               <td>${a.clock_in || '-'}</td><td>${a.clock_out || '-'}</td>
               <td>${a.break_hours}h</td><td><strong>${a.net_hours}h</strong></td>
               <td><span class="badge ${cls}">${a.status}</span></td>
@@ -360,7 +361,7 @@ const Attendance: React.FC = () => {
         <thead><tr><th>Date</th><th>Task</th><th>Description</th><th>Hours</th><th>Status</th></tr></thead>
         <tbody>
           ${monthTasks.map(t => `<tr>
-            <td>${t.date}</td><td><strong>${t.task_title}</strong></td>
+            <td>${formatDate(t.date)}</td><td><strong>${t.task_title}</strong></td>
             <td>${t.description || '-'}</td><td>${t.hours_spent}h</td>
             <td><span class="badge present">${t.status}</span></td>
           </tr>`).join('')}
@@ -375,7 +376,7 @@ const Attendance: React.FC = () => {
         return `<table>
           <thead><tr><th>#</th><th>Date</th><th>Amount</th><th>Note</th></tr></thead>
           <tbody>
-            ${mPayments.map((p,i) => `<tr><td>${i+1}</td><td>${p.payment_date}</td><td><strong>Rs. ${p.amount.toLocaleString('en-IN')}</strong></td><td>${p.note||'-'}</td></tr>`).join('')}
+            ${mPayments.map((p,i) => `<tr><td>${i+1}</td><td>${formatDate(p.payment_date)}</td><td><strong>Rs. ${p.amount.toLocaleString('en-IN')}</strong></td><td>${p.note||'-'}</td></tr>`).join('')}
           </tbody>
           <tfoot><tr style="background:#F3F4F6"><td colspan="2"><strong>Total Paid</strong></td><td><strong>Rs. ${totalPaid.toLocaleString('en-IN')}</strong></td><td></td></tr></tfoot>
         </table>`;
@@ -526,7 +527,7 @@ const Attendance: React.FC = () => {
                     const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                     return (
                       <tr key={a.id} className={`border-b border-gray-50 hover:bg-gray-50 ${isWeekend ? 'opacity-60' : ''}`}>
-                        <td className="py-2.5 font-medium">{a.date}</td>
+                        <td className="py-2.5 font-medium">{formatDate(a.date)}</td>
                         <td className="py-2.5 text-gray-400 text-xs">{day}</td>
                         <td className="py-2.5 font-mono text-xs text-green-600">{a.clock_in || '-'}</td>
                         <td className="py-2.5 font-mono text-xs text-red-500">{a.clock_out || '-'}</td>
@@ -611,7 +612,7 @@ const Attendance: React.FC = () => {
                     <div className="w-8 h-8 rounded-xl bg-violet-100 flex items-center justify-center text-violet-600 flex-shrink-0"><Briefcase size={14} /></div>
                     <div>
                       <p className="font-semibold text-gray-800 text-sm">{t.task_title}</p>
-                      <p className="text-xs text-gray-400">{t.date} · {t.hours_spent}h spent</p>
+                      <p className="text-xs text-gray-400">{formatDate(t.date)} · {t.hours_spent}h spent</p>
                       {t.description && <p className="text-xs text-gray-500 mt-1">{t.description}</p>}
                     </div>
                   </div>
@@ -741,7 +742,7 @@ const Attendance: React.FC = () => {
                       <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${p.amount < 0 ? 'bg-orange-100 text-orange-600' : 'bg-green-100 text-green-600'}`}>{p.amount < 0 ? '↩' : i+1}</div>
                       <div>
                         <p className={`text-sm font-semibold ${p.amount < 0 ? 'text-orange-600' : 'text-gray-800'}`}>{p.amount < 0 ? `↩ ₹${Math.abs(p.amount).toLocaleString('en-IN')} returned` : `₹${p.amount.toLocaleString('en-IN')}`}</p>
-                        <p className="text-xs text-gray-400">{p.payment_date} {p.note ? `· ${p.note}` : ''}</p>
+                        <p className="text-xs text-gray-400">{formatDate(p.payment_date)} {p.note ? `· ${p.note}` : ''}</p>
                       </div>
                     </div>
                     <button onClick={() => deletePayment(p.id!)} disabled={deleting === p.id}
