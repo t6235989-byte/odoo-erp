@@ -39,6 +39,14 @@ const calcItem = (item: BillItem): BillItem => {
   return { ...item, amount_before_tax: round2(afterDisc), tax_amount: round2(taxAmt), total_price: round2(afterDisc + taxAmt) };
 };
 const fmtMoney = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// GST rule: first 2 digits of a GSTIN are the state code. Same state on both
+// sides → CGST+SGST (split equally). Different states → single IGST line.
+const isIntraState = (vendorGstin?: string, buyerGstin?: string): boolean => {
+  const vState = vendorGstin?.trim().slice(0,2);
+  const bState = buyerGstin?.trim().slice(0,2);
+  if (!vState || !bState) return true; // default to CGST+SGST when unknown (most common case for this business)
+  return vState === bState;
+};
 
 const Purchase: React.FC = () => {
   const [tab, setTab] = useState<'bills'|'vendors'|'compare'>('bills');
@@ -531,6 +539,12 @@ If a field is not visible on the invoice, use empty string "" for text fields or
     </table>
     <table class="totals">
       <tr class="total-row"><td>Subtotal (before tax)</td><td style="text-align:right"><strong>₹${fmtMoney(subTotal)}</strong></td></tr>
+      ${isIntraState(bill.vendor_gstin, bill.buyer_gstin) ? `
+      <tr><td>CGST</td><td style="text-align:right">₹${fmtMoney(totalTax/2)}</td></tr>
+      <tr><td>SGST</td><td style="text-align:right">₹${fmtMoney(totalTax/2)}</td></tr>
+      ` : `
+      <tr><td>IGST</td><td style="text-align:right">₹${fmtMoney(totalTax)}</td></tr>
+      `}
       <tr class="total-row"><td>Total GST</td><td style="text-align:right"><strong>₹${fmtMoney(totalTax)}</strong></td></tr>
       <tr><td>Rounded Off</td><td style="text-align:right;color:#888">${roundOff>=0?'+':''}₹${fmtMoney(roundOff)}</td></tr>
       <tr><td>Amount Paid</td><td style="text-align:right;color:#16A34A"><strong>₹${bill.paid_amount.toLocaleString('en-IN')}</strong></td></tr>
@@ -936,7 +950,15 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                   <div className="flex justify-end mt-3">
                     <div className="bg-gray-50 rounded-xl p-3 text-xs space-y-1 min-w-48">
                       <div className="flex justify-between"><span className="text-gray-500">Subtotal (before tax):</span><span className="font-bold">₹{fmtMoney(grandSubTotal)}</span></div>
-                      <div className="flex justify-between"><span className="text-gray-500">Total GST:</span><span className="font-bold text-orange-500">₹{fmtMoney(grandTaxTotal)}</span></div>
+                      {isIntraState(billForm.vendor_gstin, billForm.buyer_gstin) ? (
+                        <>
+                          <div className="flex justify-between"><span className="text-gray-500">CGST:</span><span className="font-bold text-orange-500">₹{fmtMoney(grandTaxTotal/2)}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-500">SGST:</span><span className="font-bold text-orange-500">₹{fmtMoney(grandTaxTotal/2)}</span></div>
+                        </>
+                      ) : (
+                        <div className="flex justify-between"><span className="text-gray-500">IGST:</span><span className="font-bold text-orange-500">₹{fmtMoney(grandTaxTotal)}</span></div>
+                      )}
+                      <div className="flex justify-between border-t border-gray-100 pt-1"><span className="text-gray-500">Total GST:</span><span className="font-bold text-orange-600">₹{fmtMoney(grandTaxTotal)}</span></div>
                       <div className="flex justify-between"><span className="text-gray-500">Rounded Off:</span><span className="font-bold text-gray-400">{roundOffAmt>=0?'+':''}₹{fmtMoney(roundOffAmt)}</span></div>
                       <div className="flex justify-between border-t border-gray-200 pt-1"><span className="font-bold">Grand Total:</span><span className="font-bold text-green-600">₹{grandTotalRounded.toLocaleString('en-IN')}</span></div>
                       <p className="text-gray-400 text-[10px]">☑ = auto-add to Inventory</p>
