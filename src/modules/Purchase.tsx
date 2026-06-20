@@ -12,7 +12,7 @@ type Bill = {
   total_amount: number; paid_amount: number; status: string; notes: string;
 };
 type BillItem = {
-  id?: string; bill_id?: string; product_name: string; hsn_code?: string;
+  id?: string; bill_id?: string; product_name: string; description?: string; hsn_code?: string;
   quantity: number; unit: string; unit_price: number; discount_percent: number;
   amount_before_tax: number; tax_percent: number; tax_amount: number;
   total_price: number; add_to_inventory: boolean;
@@ -25,7 +25,7 @@ const TAX_RATES = [0,5,12,18,28];
 
 const emptyBill: Bill = { bill_number:'', invoice_no:'', vendor_name:'', vendor_gstin:'', buyer_gstin:'', bill_date:new Date().toISOString().split('T')[0], due_date:'', transport:'', vehicle_no:'', place_of_supply:'', eway_bill:'', total_amount:0, paid_amount:0, status:'Unpaid', notes:'' };
 const emptyVendor: Vendor = { name:'', phone:'', email:'', address:'', gstin:'' };
-const emptyItem = (): BillItem => ({ product_name:'', hsn_code:'', quantity:1, unit:'Pcs', unit_price:0, discount_percent:0, amount_before_tax:0, tax_percent:18, tax_amount:0, total_price:0, add_to_inventory:true });
+const emptyItem = (): BillItem => ({ product_name:'', description:'', hsn_code:'', quantity:1, unit:'Pcs', unit_price:0, discount_percent:0, amount_before_tax:0, tax_percent:18, tax_amount:0, total_price:0, add_to_inventory:true });
 
 // ── Calculate item totals (kept as exact decimals — NOT rounded per row) ──
 // Matches how a real GST invoice works: each line is exact, and only the
@@ -92,7 +92,7 @@ const Purchase: React.FC = () => {
   // Lets the user press Enter to jump field-to-field (Name→HSN→Qty→Unit→
   // Rate→Disc%→Tax%) instead of reaching for the mouse. Pressing Enter on the
   // last field of the last row adds a new row and focuses its first field.
-  const FIELD_ORDER = ['name','hsn','qty','unit','rate','disc','tax'];
+  const FIELD_ORDER = ['name','desc','hsn','qty','unit','rate','disc','tax'];
   const fieldRefs = React.useRef<Record<string, HTMLInputElement|HTMLSelectElement|null>>({});
   const setFieldRef = (rowIndex:number, field:string) => (el: HTMLInputElement|HTMLSelectElement|null) => {
     fieldRefs.current[`${rowIndex}-${field}`] = el;
@@ -516,7 +516,7 @@ If a field is not visible on the invoice, use empty string "" for text fields or
       <tbody>
         ${bItems.length>0 ? bItems.map((item,i)=>`<tr>
           <td>${i+1}</td>
-          <td style="text-align:left">${item.product_name}</td>
+          <td style="text-align:left">${item.product_name}${item.description?`<br><span style="font-size:10px;color:#6B7280;font-style:italic">${item.description}</span>`:''}</td>
           <td>${item.hsn_code||'-'}</td>
           <td>${item.quantity}</td>
           <td>${item.unit}</td>
@@ -675,7 +675,7 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                                   {bItems.map((item,i)=>(
                                     <tr key={i} className="border-b border-gray-100">
                                       <td className="py-1">{i+1}</td>
-                                      <td className="py-1 font-medium">{item.product_name}</td>
+                                      <td className="py-1 font-medium">{item.product_name}{item.description&&<><br/><span className="text-[11px] italic text-gray-400">{item.description}</span></>}</td>
                                       <td className="py-1 font-mono text-gray-400">{item.hsn_code||'-'}</td>
                                       <td className="py-1 text-right">{item.quantity}</td>
                                       <td className="py-1">{item.unit}</td>
@@ -902,7 +902,10 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                       <tbody>
                         {items.map((item,i)=>(
                           <tr key={i} className="border-b border-gray-100">
-                            <td className="p-1"><input ref={setFieldRef(i,'name')} onKeyDown={e=>handleRowKeyDown(e,i,'name')} value={item.product_name} onChange={e=>updateItem(i,'product_name',e.target.value)} list="product-name-list" placeholder="e.g. Bearing 6212K" className="w-36 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none"/></td>
+                            <td className="p-1">
+                              <input ref={setFieldRef(i,'name')} onKeyDown={e=>handleRowKeyDown(e,i,'name')} value={item.product_name} onChange={e=>updateItem(i,'product_name',e.target.value)} list="product-name-list" placeholder="e.g. HR COIL 72083940" className="w-36 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none"/>
+                              <input ref={setFieldRef(i,'desc')} onKeyDown={e=>handleRowKeyDown(e,i,'desc')} value={item.description||''} onChange={e=>updateItem(i,'description',e.target.value)} placeholder="spec e.g. 12G4'" className="w-36 border border-gray-100 rounded px-2 py-1 text-[11px] italic text-gray-500 focus:outline-none mt-1"/>
+                            </td>
                             <td className="p-1"><input ref={setFieldRef(i,'hsn')} onKeyDown={e=>handleRowKeyDown(e,i,'hsn')} value={item.hsn_code||''} onChange={e=>updateItem(i,'hsn_code',e.target.value)} placeholder="84821020" className="w-20 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none font-mono"/></td>
                             <td className="p-1"><input ref={setFieldRef(i,'qty')} onKeyDown={e=>handleRowKeyDown(e,i,'qty')} type="number" value={item.quantity||''} onChange={e=>updateItem(i,'quantity',Number(e.target.value))} className="w-14 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none text-center"/></td>
                             <td className="p-1"><select ref={setFieldRef(i,'unit')} onKeyDown={e=>handleRowKeyDown(e,i,'unit')} value={item.unit} onChange={e=>updateItem(i,'unit',e.target.value)} className="w-16 border border-gray-200 rounded px-1 py-1 text-xs focus:outline-none">{UNITS.map(u=><option key={u}>{u}</option>)}</select></td>

@@ -37,6 +37,7 @@ const tables = [
 const Backup: React.FC = () => {
   const [excelStatus, setExcelStatus] = useState<BackupStatus>('idle');
   const [pdfStatus, setPdfStatus] = useState<BackupStatus>('idle');
+  const [exportError, setExportError] = useState<string|null>(null);
   const [progress, setProgress] = useState<string[]>([]);
   const [selectedTables, setSelectedTables] = useState<string[]>(tables.map(t=>t.key));
   const [lastBackup, setLastBackup] = useState<string|null>(localStorage.getItem('last_backup')||null);
@@ -62,6 +63,7 @@ const Backup: React.FC = () => {
   // ── Excel Export ────────────────────────────────────────────────────────
   const exportExcel = async () => {
     setExcelStatus('fetching');
+    setExportError(null);
     setProgress([]);
     try {
       const { data, log } = await fetchAllData();
@@ -80,11 +82,17 @@ const Backup: React.FC = () => {
       XLSX.utils.book_append_sheet(wb, summarySheet, 'Summary');
 
       // One sheet per table
+      const usedSheetNames = new Set<string>();
       for(const table of tables.filter(t=>selectedTables.includes(t.key))) {
         const rows = data[table.key];
-        if(rows.length === 0) {
+        // Excel sheet names must be unique, <=31 chars, and can't contain : \ / ? * [ ]
+        let sheetName = table.label.replace(/[:\\/?*\[\]]/g,'').slice(0,31).trim() || table.key.slice(0,31);
+        let suffix = 1;
+        while (usedSheetNames.has(sheetName)) { sheetName = `${sheetName.slice(0,28)}_${suffix++}`; }
+        usedSheetNames.add(sheetName);
+        if(!rows || rows.length === 0) {
           const emptySheet = XLSX.utils.aoa_to_sheet([[`No data in ${table.label}`]]);
-          XLSX.utils.book_append_sheet(wb, emptySheet, table.label.slice(0,31));
+          XLSX.utils.book_append_sheet(wb, emptySheet, sheetName);
           continue;
         }
         // Remove internal fields
@@ -97,11 +105,11 @@ const Backup: React.FC = () => {
         const maxWidths: number[] = [];
         const headers = Object.keys(cleanRows[0]);
         headers.forEach((h,i) => {
-          const maxLen = Math.max(h.length, ...cleanRows.map(r=>String(r[h]||'').length).slice(0,50));
+          const maxLen = Math.max(h.length, ...cleanRows.map(r=>String(r[h]??'').length).slice(0,50));
           maxWidths[i] = Math.min(Math.max(maxLen, 10), 40);
         });
         ws['!cols'] = maxWidths.map(w=>({wch:w}));
-        XLSX.utils.book_append_sheet(wb, ws, table.label.slice(0,31));
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
       }
 
       const date = new Date().toISOString().split('T')[0];
@@ -110,7 +118,9 @@ const Backup: React.FC = () => {
       localStorage.setItem('last_backup', now);
       setLastBackup(now);
       setExcelStatus('done');
-    } catch(e) {
+    } catch(e: any) {
+      console.error('Excel export failed:', e);
+      setExportError(e?.message || String(e) || 'Unknown error during Excel export.');
       setExcelStatus('error');
     }
   };
@@ -118,49 +128,73 @@ const Backup: React.FC = () => {
   // ── PDF Export ──────────────────────────────────────────────────────────
   const exportPDF = async () => {
     setPdfStatus('fetching');
+    setExportError(null);
     setProgress([]);
     try {
       const { data } = await fetchAllData();
       const date = new Date().toLocaleString('en-IN');
+
+      // Max columns that comfortably fit on one landscape page at readable size.
+      // Tables wider than this get split into column groups instead of shrunk.
+      const MAX_COLS_PER_GROUP = 7;
 
       const sections = tables.filter(t=>selectedTables.includes(t.key)).map(table => {
         const rows = data[table.key];
         if(!rows||rows.length===0) return `<div class="section"><h2>${table.icon} ${table.label}</h2><p class="empty">No data</p></div>`;
         const headers = Object.keys(rows[0]).filter(k=>!['id'].includes(k));
         const maxRows = 100; // limit per table in PDF
+        const idCol = headers[0]; // repeated in every group so rows can be matched back together
+
+        // Split into column groups if too wide to stay readable on one page
+        const groups: string[][] = [];
+        if (headers.length <= MAX_COLS_PER_GROUP) {
+          groups.push(headers);
+        } else {
+          const restCols = headers.slice(1);
+          for (let i = 0; i < restCols.length; i += (MAX_COLS_PER_GROUP - 1)) {
+            groups.push([idCol, ...restCols.slice(i, i + (MAX_COLS_PER_GROUP - 1))]);
+          }
+        }
+
+        const groupTables = groups.map((cols, gi) => `
+          ${groups.length > 1 ? `<p class="group-label">Columns ${gi+1} of ${groups.length} (matched by ${idCol.replace(/_/g,' ').toUpperCase()})</p>` : ''}
+          <div class="table-wrap">
+          <table>
+            <thead><tr>${cols.map(h=>`<th>${h.replace(/_/g,' ').toUpperCase()}</th>`).join('')}</tr></thead>
+            <tbody>
+              ${rows.slice(0,maxRows).map(row=>`<tr>${cols.map(h=>`<td>${row[h]??'-'}</td>`).join('')}</tr>`).join('')}
+              ${rows.length>maxRows?`<tr><td colspan="${cols.length}" style="text-align:center;color:#9CA3AF">... and ${rows.length-maxRows} more records (see Excel for full data)</td></tr>`:''}
+            </tbody>
+          </table>
+          </div>`).join('');
+
         return `
           <div class="section">
-            <h2>${table.icon} ${table.label} <span class="count">${rows.length} records</span></h2>
-            <div class="table-wrap">
-            <table>
-              <thead><tr>${headers.map(h=>`<th>${h.replace(/_/g,' ').toUpperCase()}</th>`).join('')}</tr></thead>
-              <tbody>
-                ${rows.slice(0,maxRows).map(row=>`<tr>${headers.map(h=>`<td>${row[h]??'-'}</td>`).join('')}</tr>`).join('')}
-                ${rows.length>maxRows?`<tr><td colspan="${headers.length}" style="text-align:center;color:#9CA3AF">... and ${rows.length-maxRows} more records (see Excel for full data)</td></tr>`:''}
-              </tbody>
-            </table>
-            </div>
+            <h2>${table.icon} ${table.label} <span class="count">${rows.length} records · ${headers.length} columns</span></h2>
+            ${groupTables}
           </div>`;
       }).join('');
 
       const html = `<html><head><title>OdooERP Backup ${date}</title>
       <style>
+        @page { size: landscape; margin: 12mm 8mm; }
         *{margin:0;padding:0;box-sizing:border-box}
         body{font-family:Arial,sans-serif;padding:20px;color:#111;font-size:10px}
         .cover{text-align:center;padding:40px 0;border-bottom:3px solid #7C3AED;margin-bottom:20px}
         .cover h1{font-size:24px;color:#7C3AED;font-weight:bold}
         .cover p{color:#6B7280;margin-top:6px}
-        .section{margin-bottom:24px;page-break-inside:avoid}
+        .section{margin-bottom:24px;page-break-inside:auto}
         .section h2{font-size:13px;font-weight:bold;color:#1F2937;background:#F3F4F6;padding:6px 10px;border-left:4px solid #7C3AED;margin-bottom:6px}
         .count{font-size:10px;color:#7C3AED;font-weight:normal;margin-left:8px}
+        .group-label{font-size:10px;color:#6B7280;font-style:italic;margin:8px 0 4px}
         .empty{color:#9CA3AF;padding:8px;font-style:italic}
-        .table-wrap{overflow-x:auto}
-        table{width:100%;border-collapse:collapse;font-size:9px}
-        th{background:#7C3AED;color:white;padding:4px 6px;text-align:left;white-space:nowrap}
-        td{padding:3px 6px;border-bottom:1px solid #F3F4F6;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis}
+        .table-wrap{width:100%;page-break-inside:auto;margin-bottom:10px}
+        table{width:100%;border-collapse:collapse;font-size:10px}
+        th{background:#7C3AED;color:white;padding:5px 7px;text-align:left;word-break:break-word}
+        td{padding:4px 7px;border-bottom:1px solid #F3F4F6;word-break:break-word;overflow-wrap:break-word}
         tr:nth-child(even) td{background:#FAFAFA}
         .footer{text-align:center;color:#9CA3AF;font-size:9px;margin-top:20px;border-top:1px solid #E5E7EB;padding-top:10px}
-        @media print{.section{page-break-inside:auto}.section h2{page-break-after:avoid}}
+        @media print{.section h2{page-break-after:avoid}.group-label{page-break-after:avoid}}
       </style></head><body>
       <div class="cover">
         <h1>🗄 OdooERP — Full Data Backup</h1>
@@ -177,7 +211,9 @@ const Backup: React.FC = () => {
       localStorage.setItem('last_backup', now);
       setLastBackup(now);
       setPdfStatus('done');
-    } catch(e) {
+    } catch(e: any) {
+      console.error('PDF export failed:', e);
+      setExportError(e?.message || String(e) || 'Unknown error during PDF export.');
       setPdfStatus('error');
     }
   };
@@ -221,9 +257,10 @@ const Backup: React.FC = () => {
             <li>✓ Filter & sort in Excel</li>
           </ul>
           <button onClick={exportExcel} disabled={excelStatus==='fetching'||selectedTables.length===0}
-            className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 disabled:opacity-60 transition-colors">
+            className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-medium transition-colors disabled:opacity-60 ${excelStatus==='error'?'bg-red-600 hover:bg-red-700 text-white':'bg-green-600 hover:bg-green-700 text-white'}`}>
             {excelStatus==='fetching'?<><Loader size={16} className="animate-spin"/>Exporting...</>
             :excelStatus==='done'?<><CheckCircle size={16}/>Downloaded! Export Again</>
+            :excelStatus==='error'?<>⚠️ Failed — Click to Retry</>
             :<><Table size={16}/>Download Excel (.xlsx)</>}
           </button>
         </div>
@@ -242,15 +279,24 @@ const Backup: React.FC = () => {
             <li>✓ Formatted tables</li>
             <li>✓ Print or save as PDF</li>
             <li>✓ Max 100 rows per table shown</li>
+            <li>✓ Wide tables split into readable column groups</li>
           </ul>
           <button onClick={exportPDF} disabled={pdfStatus==='fetching'||selectedTables.length===0}
-            className="w-full flex items-center justify-center gap-2 py-3 bg-red-500 text-white rounded-xl font-medium hover:bg-red-600 disabled:opacity-60 transition-colors">
+            className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-medium transition-colors disabled:opacity-60 ${pdfStatus==='error'?'bg-red-700 hover:bg-red-800 text-white':'bg-red-500 hover:bg-red-600 text-white'}`}>
             {pdfStatus==='fetching'?<><Loader size={16} className="animate-spin"/>Generating...</>
             :pdfStatus==='done'?<><CheckCircle size={16}/>Generated! Export Again</>
+            :pdfStatus==='error'?<>⚠️ Failed — Click to Retry</>
             :<><FileText size={16}/>Download PDF Report</>}
           </button>
         </div>
       </div>
+
+      {/* Export error */}
+      {exportError && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">
+          <strong>⚠️ Export failed:</strong> {exportError}
+        </div>
+      )}
 
       {/* Table selector */}
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
@@ -313,6 +359,9 @@ const Backup: React.FC = () => {
         </div>
         <div className="mt-3 p-3 bg-white rounded-xl text-xs text-blue-600">
           <strong>💾 Recommended:</strong> Take backup every week. Your Supabase data is safe in cloud, but having local copy gives you extra security.
+        </div>
+        <div className="mt-3 p-3 bg-amber-50 border border-amber-100 rounded-xl text-xs text-amber-700">
+          <strong>📄 PDF tip:</strong> In the print window, check that <strong>Layout</strong> is set to <strong>Landscape</strong> (not Portrait) before clicking Save — this prevents wide tables like Purchase Items from getting columns cut off the page.
         </div>
       </div>
     </div>
