@@ -47,6 +47,19 @@ const isIntraState = (vendorGstin?: string, buyerGstin?: string): boolean => {
   if (!vState || !bState) return true; // default to CGST+SGST when unknown (most common case for this business)
   return vState === bState;
 };
+// Groups items by tax rate (e.g. 18%, 12%, 5%) — matches the rate-wise tax
+// breakdown table found on real GST invoices.
+type TaxRateGroup = { rate: number; taxable: number; tax: number };
+const groupByTaxRate = (lineItems: BillItem[]): TaxRateGroup[] => {
+  const map: Record<number, TaxRateGroup> = {};
+  for (const item of lineItems.filter(i=>i.product_name)) {
+    const rate = item.tax_percent;
+    if (!map[rate]) map[rate] = { rate, taxable: 0, tax: 0 };
+    map[rate].taxable += item.amount_before_tax;
+    map[rate].tax += item.tax_amount;
+  }
+  return Object.values(map).sort((a,b)=>b.rate-a.rate);
+};
 
 const Purchase: React.FC = () => {
   const [tab, setTab] = useState<'bills'|'vendors'|'compare'>('bills');
@@ -477,6 +490,9 @@ If a field is not visible on the invoice, use empty string "" for text fields or
       .totals{margin-left:auto;width:280px;border:1px solid #ddd}
       .totals td{padding:5px 8px}
       .total-row td{background:#F3F4F6}
+      .tax-breakdown{margin-left:auto;width:420px;font-size:10px}
+      .tax-breakdown th{font-size:9px;padding:5px 4px}
+      .tax-breakdown td{padding:4px}
       .grand-total td{background:#7C3AED;color:white;font-weight:bold;font-size:14px}
       .footer{text-align:center;margin-top:20px;font-size:10px;color:#777;border-top:1px solid #ddd;padding-top:8px}
       .sign-box{display:flex;justify-content:space-between;margin-top:30px}
@@ -537,14 +553,36 @@ If a field is not visible on the invoice, use empty string "" for text fields or
         </tr>`).join('') : `<tr><td colspan="11" style="text-align:center;color:#999">No items recorded</td></tr>`}
       </tbody>
     </table>
+    ${(() => {
+      const rateGroups = groupByTaxRate(bItems);
+      const intra = isIntraState(bill.vendor_gstin, bill.buyer_gstin);
+      if (rateGroups.length === 0) return '';
+      return `
+      <table class="tax-breakdown">
+        <thead><tr>
+          <th style="text-align:left">Tax Rate</th>
+          <th>Taxable Amt</th>
+          ${intra ? '<th>CGST Amt</th><th>SGST Amt</th>' : '<th>IGST Amt</th>'}
+          <th>Total Tax</th>
+        </tr></thead>
+        <tbody>
+          ${rateGroups.map(g=>`<tr>
+            <td style="text-align:left">${g.rate}%</td>
+            <td>${fmtMoney(g.taxable)}</td>
+            ${intra ? `<td>${fmtMoney(g.tax/2)}</td><td>${fmtMoney(g.tax/2)}</td>` : `<td>${fmtMoney(g.tax)}</td>`}
+            <td><strong>${fmtMoney(g.tax)}</strong></td>
+          </tr>`).join('')}
+          <tr class="total-row">
+            <td style="text-align:left"><strong>Total</strong></td>
+            <td><strong>${fmtMoney(subTotal)}</strong></td>
+            ${intra ? `<td><strong>${fmtMoney(totalTax/2)}</strong></td><td><strong>${fmtMoney(totalTax/2)}</strong></td>` : `<td><strong>${fmtMoney(totalTax)}</strong></td>`}
+            <td><strong>${fmtMoney(totalTax)}</strong></td>
+          </tr>
+        </tbody>
+      </table>`;
+    })()}
     <table class="totals">
       <tr class="total-row"><td>Subtotal (before tax)</td><td style="text-align:right"><strong>₹${fmtMoney(subTotal)}</strong></td></tr>
-      ${isIntraState(bill.vendor_gstin, bill.buyer_gstin) ? `
-      <tr><td>CGST</td><td style="text-align:right">₹${fmtMoney(totalTax/2)}</td></tr>
-      <tr><td>SGST</td><td style="text-align:right">₹${fmtMoney(totalTax/2)}</td></tr>
-      ` : `
-      <tr><td>IGST</td><td style="text-align:right">₹${fmtMoney(totalTax)}</td></tr>
-      `}
       <tr class="total-row"><td>Total GST</td><td style="text-align:right"><strong>₹${fmtMoney(totalTax)}</strong></td></tr>
       <tr><td>Rounded Off</td><td style="text-align:right;color:#888">${roundOff>=0?'+':''}₹${fmtMoney(roundOff)}</td></tr>
       <tr><td>Amount Paid</td><td style="text-align:right;color:#16A34A"><strong>₹${bill.paid_amount.toLocaleString('en-IN')}</strong></td></tr>
@@ -946,19 +984,54 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                       </tbody>
                     </table>
                   </div>
+                  {/* Tax breakdown by rate (matches real GST invoice format) */}
+                  {(() => {
+                    const rateGroups = groupByTaxRate(items);
+                    const intra = isIntraState(billForm.vendor_gstin, billForm.buyer_gstin);
+                    if (rateGroups.length === 0) return null;
+                    return (
+                      <div className="flex justify-end mt-3">
+                        <table className="text-xs border border-gray-200 rounded-lg overflow-hidden min-w-[420px]">
+                          <thead><tr className="bg-gray-100 text-gray-600">
+                            <th className="text-left px-3 py-1.5">Tax Rate</th>
+                            <th className="text-right px-3 py-1.5">Taxable Amt</th>
+                            {intra ? <>
+                              <th className="text-right px-3 py-1.5">CGST</th>
+                              <th className="text-right px-3 py-1.5">SGST</th>
+                            </> : <th className="text-right px-3 py-1.5">IGST</th>}
+                            <th className="text-right px-3 py-1.5">Total Tax</th>
+                          </tr></thead>
+                          <tbody>
+                            {rateGroups.map(g=>(
+                              <tr key={g.rate} className="border-t border-gray-100">
+                                <td className="px-3 py-1.5">{g.rate}%</td>
+                                <td className="text-right px-3 py-1.5">₹{fmtMoney(g.taxable)}</td>
+                                {intra ? <>
+                                  <td className="text-right px-3 py-1.5 text-orange-500">₹{fmtMoney(g.tax/2)}</td>
+                                  <td className="text-right px-3 py-1.5 text-orange-500">₹{fmtMoney(g.tax/2)}</td>
+                                </> : <td className="text-right px-3 py-1.5 text-orange-500">₹{fmtMoney(g.tax)}</td>}
+                                <td className="text-right px-3 py-1.5 font-bold">₹{fmtMoney(g.tax)}</td>
+                              </tr>
+                            ))}
+                            <tr className="border-t border-gray-200 bg-gray-50 font-bold">
+                              <td className="px-3 py-1.5">Total</td>
+                              <td className="text-right px-3 py-1.5">₹{fmtMoney(grandSubTotal)}</td>
+                              {intra ? <>
+                                <td className="text-right px-3 py-1.5">₹{fmtMoney(grandTaxTotal/2)}</td>
+                                <td className="text-right px-3 py-1.5">₹{fmtMoney(grandTaxTotal/2)}</td>
+                              </> : <td className="text-right px-3 py-1.5">₹{fmtMoney(grandTaxTotal)}</td>}
+                              <td className="text-right px-3 py-1.5">₹{fmtMoney(grandTaxTotal)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })()}
                   {/* Totals */}
                   <div className="flex justify-end mt-3">
                     <div className="bg-gray-50 rounded-xl p-3 text-xs space-y-1 min-w-48">
                       <div className="flex justify-between"><span className="text-gray-500">Subtotal (before tax):</span><span className="font-bold">₹{fmtMoney(grandSubTotal)}</span></div>
-                      {isIntraState(billForm.vendor_gstin, billForm.buyer_gstin) ? (
-                        <>
-                          <div className="flex justify-between"><span className="text-gray-500">CGST:</span><span className="font-bold text-orange-500">₹{fmtMoney(grandTaxTotal/2)}</span></div>
-                          <div className="flex justify-between"><span className="text-gray-500">SGST:</span><span className="font-bold text-orange-500">₹{fmtMoney(grandTaxTotal/2)}</span></div>
-                        </>
-                      ) : (
-                        <div className="flex justify-between"><span className="text-gray-500">IGST:</span><span className="font-bold text-orange-500">₹{fmtMoney(grandTaxTotal)}</span></div>
-                      )}
-                      <div className="flex justify-between border-t border-gray-100 pt-1"><span className="text-gray-500">Total GST:</span><span className="font-bold text-orange-600">₹{fmtMoney(grandTaxTotal)}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-500">Total GST:</span><span className="font-bold text-orange-600">₹{fmtMoney(grandTaxTotal)}</span></div>
                       <div className="flex justify-between"><span className="text-gray-500">Rounded Off:</span><span className="font-bold text-gray-400">{roundOffAmt>=0?'+':''}₹{fmtMoney(roundOffAmt)}</span></div>
                       <div className="flex justify-between border-t border-gray-200 pt-1"><span className="font-bold">Grand Total:</span><span className="font-bold text-green-600">₹{grandTotalRounded.toLocaleString('en-IN')}</span></div>
                       <p className="text-gray-400 text-[10px]">☑ = auto-add to Inventory</p>
