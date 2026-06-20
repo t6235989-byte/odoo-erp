@@ -548,11 +548,16 @@ If a field is not visible on the invoice, use empty string "" for text fields or
   };
 
   // ── Price compare ──────────────────────────────────────────────────────
-  const priceMap: Record<string,{vendor:string;price:number;date:string}[]> = {};
+  // Grouped by product name + spec/description together, since e.g. "HR COIL"
+  // at 12G4' and 14G4' are genuinely different products and shouldn't be
+  // compared against each other as if they were the same item.
+  const priceMap: Record<string,{vendor:string;price:number;date:string;productName:string;description?:string}[]> = {};
   billItems.forEach(item=>{
     const bill=bills.find(b=>b.id===item.bill_id); if(!bill) return;
-    if(!priceMap[item.product_name]) priceMap[item.product_name]=[];
-    priceMap[item.product_name].push({vendor:bill.vendor_name,price:item.unit_price,date:bill.bill_date});
+    const spec = item.description?.trim();
+    const groupKey = spec ? `${item.product_name} — ${spec}` : item.product_name;
+    if(!priceMap[groupKey]) priceMap[groupKey]=[];
+    priceMap[groupKey].push({vendor:bill.vendor_name,price:item.unit_price,date:bill.bill_date,productName:item.product_name,description:spec});
   });
 
   // Filter + sort bills
@@ -771,7 +776,12 @@ If a field is not visible on the invoice, use empty string "" for text fields or
               const minP=prices[0].price, maxP=prices[prices.length-1].price;
               return (
                 <div key={product} className="mb-5 p-4 border border-gray-100 rounded-xl">
-                  <h4 className="font-bold text-gray-800 mb-3">{product} <span className="text-xs text-gray-400 font-normal">· {prices.length} vendor{prices.length>1?'s':''}</span></h4>
+                  <h4 className="font-bold text-gray-800 mb-3">
+                    {product.includes(' — ') ? (
+                      <>{product.split(' — ')[0]} <span className="italic text-gray-500 font-normal">— {product.split(' — ').slice(1).join(' — ')}</span></>
+                    ) : product}
+                    {' '}<span className="text-xs text-gray-400 font-normal">· {prices.length} vendor{prices.length>1?'s':''}</span>
+                  </h4>
                   {prices.map((p,i)=>{
                     const isMin=p.price===minP, isMax=p.price===maxP&&prices.length>1;
                     const pct=maxP>minP?((p.price-minP)/(maxP-minP))*100:0;
