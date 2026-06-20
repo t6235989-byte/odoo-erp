@@ -27,14 +27,18 @@ const emptyBill: Bill = { bill_number:'', invoice_no:'', vendor_name:'', vendor_
 const emptyVendor: Vendor = { name:'', phone:'', email:'', address:'', gstin:'' };
 const emptyItem = (): BillItem => ({ product_name:'', hsn_code:'', quantity:1, unit:'Pcs', unit_price:0, discount_percent:0, amount_before_tax:0, tax_percent:18, tax_amount:0, total_price:0, add_to_inventory:true });
 
-// ── Calculate item totals ─────────────────────────────────────────────────
+// ── Calculate item totals (kept as exact decimals — NOT rounded per row) ──
+// Matches how a real GST invoice works: each line is exact, and only the
+// final Grand Total gets a single "Rounded Off" adjustment at the end.
+const round2 = (n: number) => Math.round(n * 100) / 100;
 const calcItem = (item: BillItem): BillItem => {
   const base = item.quantity * item.unit_price;
   const discAmt = base * (item.discount_percent / 100);
   const afterDisc = base - discAmt;
   const taxAmt = afterDisc * (item.tax_percent / 100);
-  return { ...item, amount_before_tax: Math.round(afterDisc), tax_amount: Math.round(taxAmt), total_price: Math.round(afterDisc + taxAmt) };
+  return { ...item, amount_before_tax: round2(afterDisc), tax_amount: round2(taxAmt), total_price: round2(afterDisc + taxAmt) };
 };
+const fmtMoney = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const Purchase: React.FC = () => {
   const [tab, setTab] = useState<'bills'|'vendors'|'compare'>('bills');
@@ -46,6 +50,7 @@ const Purchase: React.FC = () => {
   const [showBillModal, setShowBillModal] = useState(false);
   const [showVendorModal, setShowVendorModal] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
+  const [editingPayment, setEditingPayment] = useState<Payment|null>(null);
   const [showItemsFor, setShowItemsFor] = useState<string|null>(null);
   const [billForm, setBillForm] = useState<Bill>(emptyBill);
   const [vendorForm, setVendorForm] = useState<Vendor>(emptyVendor);
@@ -63,7 +68,7 @@ const Purchase: React.FC = () => {
   const [filterYear, setFilterYear] = useState('');
   const [sortOrder, setSortOrder] = useState<'newest'|'oldest'>('newest');
 
-  const showToast = (msg:string,type:'success'|'error') => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
+  const showToast = (msg:string,type:'success'|'error') => { setToast({msg,type}); setTimeout(()=>setToast(null), type==='error'?7000:3000); };
 
   const fetchData = async () => {
     setLoading(true);
@@ -83,23 +88,170 @@ const Purchase: React.FC = () => {
   const totalDue = totalBills - totalPaid;
   const overdueBills = bills.filter(b=>b.status!=='Paid'&&b.due_date&&new Date(b.due_date)<new Date()).length;
 
+  // ── Keyboard navigation for the items table ─────────────────────────────
+  // Lets the user press Enter to jump field-to-field (Name→HSN→Qty→Unit→
+  // Rate→Disc%→Tax%) instead of reaching for the mouse. Pressing Enter on the
+  // last field of the last row adds a new row and focuses its first field.
+  const FIELD_ORDER = ['name','hsn','qty','unit','rate','disc','tax'];
+  const fieldRefs = React.useRef<Record<string, HTMLInputElement|HTMLSelectElement|null>>({});
+  const setFieldRef = (rowIndex:number, field:string) => (el: HTMLInputElement|HTMLSelectElement|null) => {
+    fieldRefs.current[`${rowIndex}-${field}`] = el;
+  };
+  const handleRowKeyDown = (e: React.KeyboardEvent, rowIndex: number, field: string) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const colIdx = FIELD_ORDER.indexOf(field);
+    const isLastField = colIdx === FIELD_ORDER.length - 1;
+    const isLastRow = rowIndex === items.length - 1;
+    if (isLastField && isLastRow) {
+      setItems([...items, emptyItem()]);
+      // Focus the new row's first field once it's rendered
+      setTimeout(() => fieldRefs.current[`${rowIndex+1}-name`]?.focus(), 0);
+    } else if (isLastField) {
+      fieldRefs.current[`${rowIndex+1}-name`]?.focus();
+    } else {
+      fieldRefs.current[`${rowIndex}-${FIELD_ORDER[colIdx+1]}`]?.focus();
+    }
+  };
+
+  // ── Keyboard navigation for the header section (Invoice + Vendor Details) ─
+  // Same Enter-to-advance behavior as the items table. The last header field
+  // (Notes) hands off into the items table's first field (Product Name).
+  const HEADER_FIELD_ORDER = ['bill_number','invoice_no','bill_date','due_date','vendor_name','vendor_gstin','buyer_gstin','place_of_supply','transport','vehicle_no','eway_bill','notes'];
+  const headerFieldRefs = React.useRef<Record<string, HTMLInputElement|null>>({});
+  const setHeaderFieldRef = (key:string) => (el: HTMLInputElement|null) => { headerFieldRefs.current[key] = el; };
+  const handleHeaderKeyDown = (e: React.KeyboardEvent, key: string) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const idx = HEADER_FIELD_ORDER.indexOf(key);
+    if (idx === HEADER_FIELD_ORDER.length - 1) {
+      fieldRefs.current['0-name']?.focus();
+    } else {
+      headerFieldRefs.current[HEADER_FIELD_ORDER[idx+1]]?.focus();
+    }
+  };
+
   // ── Item row helpers ───────────────────────────────────────────────────
+  // Build a lookup of each product's most recently used HSN/unit/rate/tax,
+  // newest bill first, so picking a familiar item pre-fills its usual details.
+  const productHistory = (() => {
+    const sorted = [...bills].sort((a,b)=> new Date(b.bill_date).getTime() - new Date(a.bill_date).getTime());
+    const map: Record<string, BillItem> = {};
+    for (const bill of sorted) {
+      for (const it of billItems.filter(i=>i.bill_id===bill.id)) {
+        const key = it.product_name.trim().toLowerCase();
+        if (key && !map[key]) map[key] = it;
+      }
+    }
+    return map;
+  })();
+  const knownProductNames = Object.values(productHistory).map(i=>i.product_name);
+
   const updateItem = (i:number, field:string, val:any) => {
     const updated = [...items];
     (updated[i] as any)[field] = val;
+    if (field === 'product_name') {
+      const hist = productHistory[String(val).trim().toLowerCase()];
+      if (hist) {
+        updated[i].hsn_code = hist.hsn_code;
+        updated[i].unit = hist.unit;
+        updated[i].unit_price = hist.unit_price;
+        updated[i].tax_percent = hist.tax_percent;
+        updated[i].discount_percent = hist.discount_percent;
+      }
+    }
     updated[i] = calcItem(updated[i]);
     setItems(updated);
+  };
+
+  // Fuzzy vendor name match: matches if either name contains the other
+  // (e.g. typing "Shiva Paints" should find "Shiva Paints & Hardware Store").
+  // Requires at least 3 characters to avoid accidental short-string matches.
+  const vendorNameMatches = (a: string, b: string) => {
+    const x = a.trim().toLowerCase(), y = b.trim().toLowerCase();
+    if (!x || !y || x.length < 3 || y.length < 3) return x === y;
+    return x === y || x.includes(y) || y.includes(x);
+  };
+  // Look up a vendor's saved phone number by (fuzzy) name match, for display
+  const getVendorPhone = (vendorName: string): string => {
+    const match = vendors.find(v => vendorNameMatches(v.name, vendorName));
+    return match?.phone || '';
+  };
+  // Detect if this Bill/Invoice No already exists for ANY vendor — fires the
+  // moment a matching number is typed, even before Vendor Name is filled in
+  // (excluding the bill currently being edited, if any).
+  const findDuplicateBill = (): Bill | undefined => {
+    const num = billForm.bill_number.trim().toLowerCase();
+    if (!num) return undefined;
+    return bills.find(b =>
+      b.id !== editingBill?.id &&
+      b.bill_number.trim().toLowerCase() === num
+    );
+  };
+
+  // Auto-fill vendor GSTIN + last-used transport details when a known vendor is picked
+  const handleVendorPick = (name: string) => {
+    const match = vendors.find(v => vendorNameMatches(v.name, name));
+    const lastBill = bills.filter(b => vendorNameMatches(b.vendor_name, name))
+      .sort((a,b)=> new Date(b.bill_date).getTime() - new Date(a.bill_date).getTime())[0];
+    setBillForm(prev => ({
+      ...prev, vendor_name: name,
+      vendor_gstin: match?.gstin || lastBill?.vendor_gstin || prev.vendor_gstin,
+      transport: lastBill?.transport ?? prev.transport,
+      place_of_supply: lastBill?.place_of_supply ?? prev.place_of_supply,
+      buyer_gstin: lastBill?.buyer_gstin || prev.buyer_gstin,
+    }));
+  };
+  // When leaving the vendor field, if what was typed uniquely matches one
+  // known vendor name, snap the textbox to that vendor's full saved name.
+  const completeVendorName = () => {
+    const typed = billForm.vendor_name.trim();
+    if (!typed || typed.length < 3) return;
+    const allNames = Array.from(new Set([...vendors.map(v=>v.name), ...bills.map(b=>b.vendor_name)]));
+    const matches = Array.from(new Set(allNames.filter(n => vendorNameMatches(n, typed))));
+    if (matches.length === 1 && matches[0] !== typed) {
+      handleVendorPick(matches[0]);
+    }
+  };
+  // Load the vendor's most recent bill's items as a starting point for a new bill
+  const loadLastItemsFor = (name: string) => {
+    if (!name.trim()) { showToast('Type or pick a vendor name first.','error'); return; }
+    const vendorBills = bills.filter(b => vendorNameMatches(b.vendor_name, name))
+      .sort((a,b)=> new Date(b.bill_date).getTime() - new Date(a.bill_date).getTime());
+    if (vendorBills.length === 0) { showToast('No previous bill found for this vendor.','error'); return; }
+    const lastBillId = vendorBills[0].id;
+    const lastItems = billItems.filter(i => i.bill_id === lastBillId);
+    if (lastItems.length === 0) { showToast("That vendor's last bill had no items saved.",'error'); return; }
+    setItems(lastItems.map(i => calcItem({ ...i, id: undefined, bill_id: undefined })));
+    showToast(`Loaded ${lastItems.length} item(s) from last bill — adjust qty/rate as needed.`,'success');
   };
 
   // ── Save Bill ──────────────────────────────────────────────────────────
   const saveBill = async () => {
     if(!billForm.bill_number||!billForm.vendor_name) { showToast('Bill number and vendor required.','error'); return; }
+    const dup = findDuplicateBill();
+    if (dup) {
+      const proceed = window.confirm(
+        `A bill numbered "${billForm.bill_number}" already exists for ${dup.vendor_name} (₹${dup.total_amount.toLocaleString('en-IN')}, ${dup.status}).\n\nSave this as a separate bill anyway?`
+      );
+      if (!proceed) return;
+    }
     setSaving(true);
     const total = items.filter(i=>i.product_name).reduce((s,i)=>s+i.total_price,0);
     const payload = { ...billForm, total_amount: Math.round(total) };
     let billId = editingBill?.id;
     if(editingBill?.id) {
-      await supabase.from('purchase_bills').update(payload).eq('id',editingBill.id);
+      const { error: updateErr } = await supabase.from('purchase_bills').update(payload).eq('id',editingBill.id);
+      if (updateErr) { showToast('Failed to update bill: '+updateErr.message,'error'); setSaving(false); return; }
+      // Replace this bill's line items with the edited set (inventory stock is NOT auto-adjusted on edit)
+      const { error: delErr } = await supabase.from('purchase_items').delete().eq('bill_id',editingBill.id);
+      if (delErr) { showToast('Bill saved, but failed to clear old items: '+delErr.message,'error'); setSaving(false); fetchData(); return; }
+      const validItems = items.filter(i=>i.product_name);
+      if(validItems.length>0) {
+        const itemPayload = validItems.map(i=>({...i,bill_id:editingBill.id,id:undefined}));
+        const { error: itemErr } = await supabase.from('purchase_items').insert(itemPayload);
+        if (itemErr) { showToast('Bill header saved, but items FAILED to save: '+itemErr.message,'error'); setSaving(false); fetchData(); return; }
+      }
     } else {
       const {data,error}=await supabase.from('purchase_bills').insert([payload]).select().single();
       if(error) { showToast('Failed: '+error.message,'error'); setSaving(false); return; }
@@ -107,7 +259,12 @@ const Purchase: React.FC = () => {
       const validItems = items.filter(i=>i.product_name);
       if(billId && validItems.length>0) {
         const itemPayload = validItems.map(i=>({...i,bill_id:billId}));
-        await supabase.from('purchase_items').insert(itemPayload);
+        const { error: itemErr } = await supabase.from('purchase_items').insert(itemPayload);
+        if (itemErr) {
+          showToast('⚠️ Bill saved but ITEMS FAILED to save: '+itemErr.message+' — please Edit this bill and re-enter items.','error');
+          setShowBillModal(false); setEditingBill(null); setBillForm(emptyBill); setItems([emptyItem()]);
+          fetchData(); setSaving(false); return;
+        }
         for(const item of itemPayload.filter(i=>i.add_to_inventory)) {
           const {data:ex}=await supabase.from('products').select('id,stock').eq('name',item.product_name).single();
           if(ex) await supabase.from('products').update({stock:ex.stock+item.quantity}).eq('id',ex.id);
@@ -238,17 +395,46 @@ If a field is not visible on the invoice, use empty string "" for text fields or
     fetchData(); setSaving(false);
   };
 
+  // Recompute a bill's paid_amount/status from the actual sum of its payments
+  // (safer than incrementing/decrementing, which can drift after edits).
+  const recalcBillPaidStatus = async (billId: string, allPayments: Payment[]) => {
+    const bill = bills.find(b=>b.id===billId);
+    if (!bill) return;
+    const newPaid = allPayments.filter(p=>p.bill_id===billId).reduce((s,p)=>s+p.amount,0);
+    const newStatus = newPaid>=bill.total_amount && bill.total_amount>0 ? 'Paid' : newPaid>0 ? 'Partial' : 'Unpaid';
+    const { error } = await supabase.from('purchase_bills').update({paid_amount:newPaid,status:newStatus}).eq('id',billId);
+    if (error) showToast('Payment saved, but failed to update bill totals: '+error.message,'error');
+  };
+
   const savePayment = async () => {
     if(!payForm.amount||payForm.amount<=0) { showToast('Enter valid amount.','error'); return; }
     setSaving(true);
-    await supabase.from('purchase_payments').insert([payForm]);
-    const bill = bills.find(b=>b.id===payForm.bill_id);
-    if(bill) {
-      const newPaid = bill.paid_amount+payForm.amount;
-      const newStatus = newPaid>=bill.total_amount?'Paid':newPaid>0?'Partial':'Unpaid';
-      await supabase.from('purchase_bills').update({paid_amount:newPaid,status:newStatus}).eq('id',bill.id);
+    if (editingPayment?.id) {
+      const { error } = await supabase.from('purchase_payments').update({
+        payment_date: payForm.payment_date, amount: payForm.amount, note: payForm.note,
+      }).eq('id', editingPayment.id);
+      if (error) { showToast('Failed to update payment: '+error.message,'error'); setSaving(false); return; }
+      const updatedPayments = payments.map(p => p.id===editingPayment.id ? {...p, ...payForm} : p);
+      await recalcBillPaidStatus(payForm.bill_id, updatedPayments);
+      showToast('Payment updated!','success');
+    } else {
+      const { data, error } = await supabase.from('purchase_payments').insert([payForm]).select().single();
+      if (error) { showToast('Failed to record payment: '+error.message,'error'); setSaving(false); return; }
+      const updatedPayments = [...payments, data];
+      await recalcBillPaidStatus(payForm.bill_id, updatedPayments);
+      showToast('Payment recorded!','success');
     }
-    showToast('Payment recorded!','success'); setShowPayModal(false); fetchData(); setSaving(false);
+    setShowPayModal(false); setEditingPayment(null); fetchData(); setSaving(false);
+  };
+
+  const deletePayment = async (payment: Payment) => {
+    if (!payment.id) return;
+    setDeleting(payment.id);
+    const { error } = await supabase.from('purchase_payments').delete().eq('id',payment.id);
+    if (error) { showToast('Failed to delete payment: '+error.message,'error'); setDeleting(null); return; }
+    const updatedPayments = payments.filter(p=>p.id!==payment.id);
+    await recalcBillPaidStatus(payment.bill_id, updatedPayments);
+    showToast('Payment deleted.','success'); fetchData(); setDeleting(null);
   };
 
   const deleteBill = async (id:string) => { setDeleting(id); await supabase.from('purchase_bills').delete().eq('id',id); showToast('Deleted.','success'); fetchData(); setDeleting(null); };
@@ -259,7 +445,9 @@ If a field is not visible on the invoice, use empty string "" for text fields or
     const bItems = billItems.filter(i=>i.bill_id===bill.id);
     const subTotal = bItems.reduce((s,i)=>s+i.amount_before_tax,0);
     const totalTax = bItems.reduce((s,i)=>s+i.tax_amount,0);
-    const grandTotal = bItems.reduce((s,i)=>s+i.total_price,0)||bill.total_amount;
+    const exactGrandTotal = bItems.reduce((s,i)=>s+i.total_price,0)||bill.total_amount;
+    const grandTotal = Math.round(exactGrandTotal);
+    const roundOff = round2(grandTotal - exactGrandTotal);
     const win = window.open('','_blank');
     if(!win) return;
     win.document.write(`<html><head><title>GST Invoice - ${bill.bill_number}</title>
@@ -334,16 +522,17 @@ If a field is not visible on the invoice, use empty string "" for text fields or
           <td>${item.unit}</td>
           <td>${item.unit_price.toLocaleString('en-IN')}</td>
           <td>${item.discount_percent||0}%</td>
-          <td>${item.amount_before_tax.toLocaleString('en-IN')}</td>
+          <td>${fmtMoney(item.amount_before_tax)}</td>
           <td>${item.tax_percent}%</td>
-          <td>${item.tax_amount.toLocaleString('en-IN')}</td>
-          <td><strong>${item.total_price.toLocaleString('en-IN')}</strong></td>
+          <td>${fmtMoney(item.tax_amount)}</td>
+          <td><strong>${fmtMoney(item.total_price)}</strong></td>
         </tr>`).join('') : `<tr><td colspan="11" style="text-align:center;color:#999">No items recorded</td></tr>`}
       </tbody>
     </table>
     <table class="totals">
-      <tr class="total-row"><td>Subtotal (before tax)</td><td style="text-align:right"><strong>₹${subTotal.toLocaleString('en-IN')}</strong></td></tr>
-      <tr class="total-row"><td>Total GST</td><td style="text-align:right"><strong>₹${totalTax.toLocaleString('en-IN')}</strong></td></tr>
+      <tr class="total-row"><td>Subtotal (before tax)</td><td style="text-align:right"><strong>₹${fmtMoney(subTotal)}</strong></td></tr>
+      <tr class="total-row"><td>Total GST</td><td style="text-align:right"><strong>₹${fmtMoney(totalTax)}</strong></td></tr>
+      <tr><td>Rounded Off</td><td style="text-align:right;color:#888">${roundOff>=0?'+':''}₹${fmtMoney(roundOff)}</td></tr>
       <tr><td>Amount Paid</td><td style="text-align:right;color:#16A34A"><strong>₹${bill.paid_amount.toLocaleString('en-IN')}</strong></td></tr>
       <tr><td>Balance Due</td><td style="text-align:right;color:#DC2626"><strong>₹${(grandTotal-bill.paid_amount).toLocaleString('en-IN')}</strong></td></tr>
       <tr class="grand-total"><td>GRAND TOTAL</td><td style="text-align:right">₹${grandTotal.toLocaleString('en-IN')}</td></tr>
@@ -384,6 +573,8 @@ If a field is not visible on the invoice, use empty string "" for text fields or
   const grandItemTotal = items.filter(i=>i.product_name).reduce((s,i)=>s+i.total_price,0);
   const grandTaxTotal = items.filter(i=>i.product_name).reduce((s,i)=>s+i.tax_amount,0);
   const grandSubTotal = items.filter(i=>i.product_name).reduce((s,i)=>s+i.amount_before_tax,0);
+  const grandTotalRounded = Math.round(grandItemTotal);
+  const roundOffAmt = round2(grandTotalRounded - grandItemTotal);
 
   return (
     <div className="space-y-6">
@@ -448,7 +639,7 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                             <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusStyle[bill.status]}`}>{bill.status}</span>
                             {isOverdue&&<span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-600">⚠ Overdue</span>}
                           </div>
-                          <p className="text-sm text-gray-600">🏪 {bill.vendor_name} {bill.vendor_gstin&&`· GST: ${bill.vendor_gstin}`}</p>
+                          <p className="text-sm text-gray-600">🏪 {bill.vendor_name} {bill.vendor_gstin&&`· GST: ${bill.vendor_gstin}`} {getVendorPhone(bill.vendor_name)&&`· 📞 ${getVendorPhone(bill.vendor_name)}`}</p>
                           <p className="text-xs text-gray-400">📅 {bill.bill_date} {bill.due_date&&`· Due: ${bill.due_date}`} {bill.place_of_supply&&`· ${bill.place_of_supply}`}</p>
                         </div>
                         <div className="text-right">
@@ -457,12 +648,12 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                           {due>0&&<p className="text-xs text-red-500 font-bold">Due: ₹{due.toLocaleString('en-IN')}</p>}
                         </div>
                         <div className="flex gap-1 items-center flex-wrap">
-                          {bill.status!=='Paid'&&<button onClick={()=>{ setPayForm({bill_id:bill.id!,vendor_name:bill.vendor_name,payment_date:new Date().toISOString().split('T')[0],amount:due,note:''}); setShowPayModal(true); }} className="px-2 py-1 bg-green-50 text-green-600 rounded-lg text-xs hover:bg-green-100">💰 Pay</button>}
+                          {bill.status!=='Paid'&&<button onClick={()=>{ setEditingPayment(null); setPayForm({bill_id:bill.id!,vendor_name:bill.vendor_name,payment_date:new Date().toISOString().split('T')[0],amount:due,note:''}); setShowPayModal(true); }} className="px-2 py-1 bg-green-50 text-green-600 rounded-lg text-xs hover:bg-green-100">💰 Pay</button>}
                           <button onClick={()=>printBill(bill)} className="px-2 py-1 bg-violet-50 text-violet-600 rounded-lg text-xs hover:bg-violet-100 flex items-center gap-1"><FileText size={11}/> PDF</button>
                           <button onClick={()=>setShowItemsFor(showItemsFor===bill.id?null:bill.id!)} className="w-7 h-7 bg-gray-50 rounded-lg flex items-center justify-center text-gray-400">
                             {showItemsFor===bill.id?<ChevronUp size={13}/>:<ChevronDown size={13}/>}
                           </button>
-                          <button onClick={()=>{ setEditingBill(bill); setBillForm({...bill}); setShowBillModal(true); }} className="w-7 h-7 bg-blue-50 rounded-lg flex items-center justify-center text-blue-500"><Edit2 size={11}/></button>
+                          <button onClick={()=>{ setEditingBill(bill); setBillForm({...bill}); const existing=billItems.filter(i=>i.bill_id===bill.id); setItems(existing.length>0?existing.map(calcItem):[emptyItem()]); setShowBillModal(true); }} className="w-7 h-7 bg-blue-50 rounded-lg flex items-center justify-center text-blue-500"><Edit2 size={11}/></button>
                           <button onClick={()=>deleteBill(bill.id!)} disabled={deleting===bill.id} className="w-7 h-7 bg-red-50 rounded-lg flex items-center justify-center text-red-400">{deleting===bill.id?<Loader size={11} className="animate-spin"/>:<Trash2 size={11}/>}</button>
                         </div>
                       </div>
@@ -490,10 +681,10 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                                       <td className="py-1">{item.unit}</td>
                                       <td className="py-1 text-right">₹{item.unit_price}</td>
                                       <td className="py-1 text-right">{item.discount_percent||0}%</td>
-                                      <td className="py-1 text-right">₹{item.amount_before_tax.toLocaleString('en-IN')}</td>
+                                      <td className="py-1 text-right">₹{fmtMoney(item.amount_before_tax)}</td>
                                       <td className="py-1 text-right">{item.tax_percent}%</td>
-                                      <td className="py-1 text-right text-orange-500">₹{item.tax_amount.toLocaleString('en-IN')}</td>
-                                      <td className="py-1 text-right font-bold">₹{item.total_price.toLocaleString('en-IN')}</td>
+                                      <td className="py-1 text-right text-orange-500">₹{fmtMoney(item.tax_amount)}</td>
+                                      <td className="py-1 text-right font-bold">₹{fmtMoney(item.total_price)}</td>
                                     </tr>
                                   ))}
                                 </tbody>
@@ -505,9 +696,13 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                           <div>
                             <p className="text-xs font-bold text-gray-600 mb-1">💰 Payments:</p>
                             {bPays.map((p,i)=>(
-                              <div key={i} className="flex justify-between text-xs py-1 border-b border-gray-100">
+                              <div key={i} className="flex justify-between items-center text-xs py-1 border-b border-gray-100">
                                 <span className="text-gray-500">{p.payment_date} {p.note?`· ${p.note}`:''}</span>
-                                <span className="font-bold text-green-600">₹{p.amount.toLocaleString('en-IN')}</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-green-600">₹{p.amount.toLocaleString('en-IN')}</span>
+                                  <button onClick={()=>{ setEditingPayment(p); setPayForm({...p}); setShowPayModal(true); }} className="w-5 h-5 bg-blue-50 rounded flex items-center justify-center text-blue-500"><Edit2 size={9}/></button>
+                                  <button onClick={()=>deletePayment(p)} disabled={deleting===p.id} className="w-5 h-5 bg-red-50 rounded flex items-center justify-center text-red-500 disabled:opacity-50"><Trash2 size={9}/></button>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -642,9 +837,14 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                 <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
                   {[{label:'Bill/Invoice No *',key:'bill_number',ph:'BILL-004'},{label:'Vendor Invoice No',key:'invoice_no',ph:'ST/2603/2025-26'},{label:'Bill Date',key:'bill_date',type:'date'},{label:'Due Date',key:'due_date',type:'date'}].map(f=>(
                     <div key={f.key}><label className="block text-xs font-medium text-gray-700 mb-1">{f.label}</label>
-                    <input type={f.type||'text'} value={(billForm as any)[f.key]} onChange={e=>setBillForm({...billForm,[f.key]:e.target.value})} placeholder={(f as any).ph||''} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"/></div>
+                    <input ref={setHeaderFieldRef(f.key)} onKeyDown={e=>handleHeaderKeyDown(e,f.key)} type={f.type||'text'} value={(billForm as any)[f.key]} onChange={e=>setBillForm({...billForm,[f.key]:e.target.value})} placeholder={(f as any).ph||''} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"/></div>
                   ))}
                 </div>
+                {findDuplicateBill() && (
+                  <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 mt-2">
+                    ⚠️ A bill numbered "{billForm.bill_number}" already exists for {findDuplicateBill()!.vendor_name} (₹{findDuplicateBill()!.total_amount.toLocaleString('en-IN')}, {findDuplicateBill()!.status}). You can still save, but check this isn't a duplicate entry.
+                  </p>
+                )}
               </div>
 
               {/* Section 2: Vendor */}
@@ -652,32 +852,37 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                 <p className="text-xs font-bold text-gray-500 uppercase mb-2">🏪 Vendor Details</p>
                 <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
                   <div><label className="block text-xs font-medium text-gray-700 mb-1">Vendor Name *</label>
-                  <input value={billForm.vendor_name} onChange={e=>setBillForm({...billForm,vendor_name:e.target.value})} list="vendor-list" placeholder="e.g. Saini Traders" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"/>
+                  <input ref={setHeaderFieldRef('vendor_name')} onKeyDown={e=>handleHeaderKeyDown(e,'vendor_name')} value={billForm.vendor_name} onChange={e=>handleVendorPick(e.target.value)} onBlur={completeVendorName} list="vendor-list" placeholder="e.g. Saini Traders" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"/>
                   <datalist id="vendor-list">{vendors.map(v=><option key={v.id} value={v.name}/>)}</datalist></div>
                   <div><label className="block text-xs font-medium text-gray-700 mb-1">Vendor GSTIN</label>
-                  <input value={billForm.vendor_gstin||''} onChange={e=>setBillForm({...billForm,vendor_gstin:e.target.value})} placeholder="03EPMP56722A1ZZ" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none font-mono"/></div>
+                  <input ref={setHeaderFieldRef('vendor_gstin')} onKeyDown={e=>handleHeaderKeyDown(e,'vendor_gstin')} value={billForm.vendor_gstin||''} onChange={e=>setBillForm({...billForm,vendor_gstin:e.target.value})} placeholder="03EPMP56722A1ZZ" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none font-mono"/></div>
                   <div><label className="block text-xs font-medium text-gray-700 mb-1">Our GSTIN (Buyer)</label>
-                  <input value={billForm.buyer_gstin||''} onChange={e=>setBillForm({...billForm,buyer_gstin:e.target.value})} placeholder="03AMDPT2761L1ZV" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none font-mono"/></div>
+                  <input ref={setHeaderFieldRef('buyer_gstin')} onKeyDown={e=>handleHeaderKeyDown(e,'buyer_gstin')} value={billForm.buyer_gstin||''} onChange={e=>setBillForm({...billForm,buyer_gstin:e.target.value})} placeholder="03AMDPT2761L1ZV" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none font-mono"/></div>
                   <div><label className="block text-xs font-medium text-gray-700 mb-1">Place of Supply</label>
-                  <input value={billForm.place_of_supply||''} onChange={e=>setBillForm({...billForm,place_of_supply:e.target.value})} placeholder="Punjab (03)" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none"/></div>
+                  <input ref={setHeaderFieldRef('place_of_supply')} onKeyDown={e=>handleHeaderKeyDown(e,'place_of_supply')} value={billForm.place_of_supply||''} onChange={e=>setBillForm({...billForm,place_of_supply:e.target.value})} placeholder="Punjab (03)" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none"/></div>
                   <div><label className="block text-xs font-medium text-gray-700 mb-1">Transport</label>
-                  <input value={billForm.transport||''} onChange={e=>setBillForm({...billForm,transport:e.target.value})} placeholder="CAR / Truck" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none"/></div>
+                  <input ref={setHeaderFieldRef('transport')} onKeyDown={e=>handleHeaderKeyDown(e,'transport')} value={billForm.transport||''} onChange={e=>setBillForm({...billForm,transport:e.target.value})} placeholder="CAR / Truck" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none"/></div>
                   <div><label className="block text-xs font-medium text-gray-700 mb-1">Vehicle No</label>
-                  <input value={billForm.vehicle_no||''} onChange={e=>setBillForm({...billForm,vehicle_no:e.target.value})} placeholder="PB-XX-XXXX" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none"/></div>
+                  <input ref={setHeaderFieldRef('vehicle_no')} onKeyDown={e=>handleHeaderKeyDown(e,'vehicle_no')} value={billForm.vehicle_no||''} onChange={e=>setBillForm({...billForm,vehicle_no:e.target.value})} placeholder="PB-XX-XXXX" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none"/></div>
                   <div><label className="block text-xs font-medium text-gray-700 mb-1">E-Way Bill No</label>
-                  <input value={billForm.eway_bill||''} onChange={e=>setBillForm({...billForm,eway_bill:e.target.value})} placeholder="E-Way bill number" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none"/></div>
+                  <input ref={setHeaderFieldRef('eway_bill')} onKeyDown={e=>handleHeaderKeyDown(e,'eway_bill')} value={billForm.eway_bill||''} onChange={e=>setBillForm({...billForm,eway_bill:e.target.value})} placeholder="E-Way bill number" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none"/></div>
                   <div className="xl:col-span-2"><label className="block text-xs font-medium text-gray-700 mb-1">Notes</label>
-                  <input value={billForm.notes} onChange={e=>setBillForm({...billForm,notes:e.target.value})} placeholder="Optional notes..." className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none"/></div>
+                  <input ref={setHeaderFieldRef('notes')} onKeyDown={e=>handleHeaderKeyDown(e,'notes')} value={billForm.notes} onChange={e=>setBillForm({...billForm,notes:e.target.value})} placeholder="Optional notes..." className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none"/></div>
                 </div>
               </div>
 
               {/* Section 3: Items */}
-              {!editingBill&&(
+              {(
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-xs font-bold text-gray-500 uppercase">📦 Items Purchased</p>
-                    <button onClick={()=>setItems([...items,emptyItem()])} className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1"><Plus size={11}/> Add Row</button>
+                    <div className="flex items-center gap-3">
+                      {!editingBill && <button onClick={()=>loadLastItemsFor(billForm.vendor_name)} className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1"><Download size={11}/> Load Last Bill's Items</button>}
+                      <button onClick={()=>setItems([...items,emptyItem()])} className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1"><Plus size={11}/> Add Row</button>
+                    </div>
                   </div>
+                  <datalist id="product-name-list">{knownProductNames.map(n=><option key={n} value={n}/>)}</datalist>
+                  {editingBill && <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5 mb-2">⚠️ Editing items here updates the bill only — Inventory stock already added from this bill will NOT change automatically.</p>}
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead><tr className="bg-gray-50 text-gray-500">
@@ -697,16 +902,16 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                       <tbody>
                         {items.map((item,i)=>(
                           <tr key={i} className="border-b border-gray-100">
-                            <td className="p-1"><input value={item.product_name} onChange={e=>updateItem(i,'product_name',e.target.value)} placeholder="e.g. Bearing 6212K" className="w-36 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none"/></td>
-                            <td className="p-1"><input value={item.hsn_code||''} onChange={e=>updateItem(i,'hsn_code',e.target.value)} placeholder="84821020" className="w-20 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none font-mono"/></td>
-                            <td className="p-1"><input type="number" value={item.quantity||''} onChange={e=>updateItem(i,'quantity',Number(e.target.value))} className="w-14 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none text-center"/></td>
-                            <td className="p-1"><select value={item.unit} onChange={e=>updateItem(i,'unit',e.target.value)} className="w-16 border border-gray-200 rounded px-1 py-1 text-xs focus:outline-none">{UNITS.map(u=><option key={u}>{u}</option>)}</select></td>
-                            <td className="p-1"><input type="number" value={item.unit_price||''} onChange={e=>updateItem(i,'unit_price',Number(e.target.value))} className="w-20 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none text-right"/></td>
-                            <td className="p-1"><input type="number" value={item.discount_percent||''} onChange={e=>updateItem(i,'discount_percent',Number(e.target.value))} placeholder="0" className="w-12 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none text-center"/></td>
-                            <td className="p-1"><select value={item.tax_percent} onChange={e=>updateItem(i,'tax_percent',Number(e.target.value))} className="w-14 border border-gray-200 rounded px-1 py-1 text-xs focus:outline-none">{TAX_RATES.map(r=><option key={r}>{r}</option>)}</select></td>
-                            <td className="p-1 text-right font-mono text-blue-600">₹{item.amount_before_tax.toLocaleString('en-IN')}</td>
-                            <td className="p-1 text-right font-mono text-orange-500">₹{item.tax_amount.toLocaleString('en-IN')}</td>
-                            <td className="p-1 text-right font-bold text-green-600">₹{item.total_price.toLocaleString('en-IN')}</td>
+                            <td className="p-1"><input ref={setFieldRef(i,'name')} onKeyDown={e=>handleRowKeyDown(e,i,'name')} value={item.product_name} onChange={e=>updateItem(i,'product_name',e.target.value)} list="product-name-list" placeholder="e.g. Bearing 6212K" className="w-36 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none"/></td>
+                            <td className="p-1"><input ref={setFieldRef(i,'hsn')} onKeyDown={e=>handleRowKeyDown(e,i,'hsn')} value={item.hsn_code||''} onChange={e=>updateItem(i,'hsn_code',e.target.value)} placeholder="84821020" className="w-20 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none font-mono"/></td>
+                            <td className="p-1"><input ref={setFieldRef(i,'qty')} onKeyDown={e=>handleRowKeyDown(e,i,'qty')} type="number" value={item.quantity||''} onChange={e=>updateItem(i,'quantity',Number(e.target.value))} className="w-14 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none text-center"/></td>
+                            <td className="p-1"><select ref={setFieldRef(i,'unit')} onKeyDown={e=>handleRowKeyDown(e,i,'unit')} value={item.unit} onChange={e=>updateItem(i,'unit',e.target.value)} className="w-16 border border-gray-200 rounded px-1 py-1 text-xs focus:outline-none">{UNITS.map(u=><option key={u}>{u}</option>)}</select></td>
+                            <td className="p-1"><input ref={setFieldRef(i,'rate')} onKeyDown={e=>handleRowKeyDown(e,i,'rate')} type="number" value={item.unit_price||''} onChange={e=>updateItem(i,'unit_price',Number(e.target.value))} className="w-20 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none text-right"/></td>
+                            <td className="p-1"><input ref={setFieldRef(i,'disc')} onKeyDown={e=>handleRowKeyDown(e,i,'disc')} type="number" value={item.discount_percent||''} onChange={e=>updateItem(i,'discount_percent',Number(e.target.value))} placeholder="0" className="w-12 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none text-center"/></td>
+                            <td className="p-1"><select ref={setFieldRef(i,'tax')} onKeyDown={e=>handleRowKeyDown(e,i,'tax')} value={item.tax_percent} onChange={e=>updateItem(i,'tax_percent',Number(e.target.value))} className="w-14 border border-gray-200 rounded px-1 py-1 text-xs focus:outline-none">{TAX_RATES.map(r=><option key={r}>{r}</option>)}</select></td>
+                            <td className="p-1 text-right font-mono text-blue-600">₹{fmtMoney(item.amount_before_tax)}</td>
+                            <td className="p-1 text-right font-mono text-orange-500">₹{fmtMoney(item.tax_amount)}</td>
+                            <td className="p-1 text-right font-bold text-green-600">₹{fmtMoney(item.total_price)}</td>
                             <td className="p-1 text-center"><input type="checkbox" checked={item.add_to_inventory} onChange={e=>updateItem(i,'add_to_inventory',e.target.checked)} title="Auto-add to inventory" className="w-3.5 h-3.5 accent-blue-600"/></td>
                             <td className="p-1"><button onClick={()=>setItems(items.filter((_,idx)=>idx!==i))} className="w-5 h-5 bg-red-50 rounded flex items-center justify-center text-red-400 hover:bg-red-100"><X size={9}/></button></td>
                           </tr>
@@ -717,9 +922,10 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                   {/* Totals */}
                   <div className="flex justify-end mt-3">
                     <div className="bg-gray-50 rounded-xl p-3 text-xs space-y-1 min-w-48">
-                      <div className="flex justify-between"><span className="text-gray-500">Subtotal (before tax):</span><span className="font-bold">₹{grandSubTotal.toLocaleString('en-IN')}</span></div>
-                      <div className="flex justify-between"><span className="text-gray-500">Total GST:</span><span className="font-bold text-orange-500">₹{grandTaxTotal.toLocaleString('en-IN')}</span></div>
-                      <div className="flex justify-between border-t border-gray-200 pt-1"><span className="font-bold">Grand Total:</span><span className="font-bold text-green-600">₹{grandItemTotal.toLocaleString('en-IN')}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-500">Subtotal (before tax):</span><span className="font-bold">₹{fmtMoney(grandSubTotal)}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-500">Total GST:</span><span className="font-bold text-orange-500">₹{fmtMoney(grandTaxTotal)}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-500">Rounded Off:</span><span className="font-bold text-gray-400">{roundOffAmt>=0?'+':''}₹{fmtMoney(roundOffAmt)}</span></div>
+                      <div className="flex justify-between border-t border-gray-200 pt-1"><span className="font-bold">Grand Total:</span><span className="font-bold text-green-600">₹{grandTotalRounded.toLocaleString('en-IN')}</span></div>
                       <p className="text-gray-400 text-[10px]">☑ = auto-add to Inventory</p>
                     </div>
                   </div>
@@ -755,9 +961,9 @@ If a field is not visible on the invoice, use empty string "" for text fields or
 
       {/* PAY MODAL */}
       <AnimatePresence>{showPayModal&&(
-        <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onClick={e=>{if(e.target===e.currentTarget)setShowPayModal(false);}}>
+        <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onClick={e=>{if(e.target===e.currentTarget){setShowPayModal(false);setEditingPayment(null);}}}>
           <motion.div initial={{scale:0.9,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0.9,opacity:0}} className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
-            <div className="flex items-center justify-between p-5 border-b border-gray-100"><h2 className="font-bold text-gray-800">💰 Pay Bill — {payForm.vendor_name}</h2><button onClick={()=>setShowPayModal(false)} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center"><X size={14}/></button></div>
+            <div className="flex items-center justify-between p-5 border-b border-gray-100"><h2 className="font-bold text-gray-800">💰 {editingPayment?'Edit Payment':'Pay Bill'} — {payForm.vendor_name}</h2><button onClick={()=>{setShowPayModal(false);setEditingPayment(null);}} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center"><X size={14}/></button></div>
             <div className="p-5 space-y-3">
               <div><label className="block text-xs font-medium text-gray-700 mb-1">Date</label><input type="date" value={payForm.payment_date} onChange={e=>setPayForm({...payForm,payment_date:e.target.value})} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"/></div>
               <div><label className="block text-xs font-medium text-gray-700 mb-1">Amount (₹)</label>
@@ -766,8 +972,8 @@ If a field is not visible on the invoice, use empty string "" for text fields or
               <div><label className="block text-xs font-medium text-gray-700 mb-1">Note (Payment method)</label><input value={payForm.note} onChange={e=>setPayForm({...payForm,note:e.target.value})} placeholder="e.g. CHEQUE No, UPI, Cash" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"/></div>
             </div>
             <div className="flex justify-end gap-2 p-5 border-t border-gray-100">
-              <button onClick={()=>setShowPayModal(false)} className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600">Cancel</button>
-              <button onClick={savePayment} disabled={saving} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-60">{saving&&<Loader size={13} className="animate-spin"/>}{saving?'Saving...':'Pay Now'}</button>
+              <button onClick={()=>{setShowPayModal(false);setEditingPayment(null);}} className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600">Cancel</button>
+              <button onClick={savePayment} disabled={saving} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-60">{saving&&<Loader size={13} className="animate-spin"/>}{saving?'Saving...':editingPayment?'Update Payment':'Pay Now'}</button>
             </div>
           </motion.div>
         </motion.div>
