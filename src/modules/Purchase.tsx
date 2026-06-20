@@ -21,7 +21,7 @@ type BillItem = {
 type Payment = { id?: string; bill_id: string; vendor_name: string; payment_date: string; amount: number; note: string; };
 
 const statusStyle: Record<string,string> = { Paid:'bg-green-100 text-green-700', Unpaid:'bg-red-100 text-red-700', Partial:'bg-orange-100 text-orange-700' };
-const UNITS = ['Pcs','Kg','Metre','Litre','Box','Set','Pair','Sqft','Bundle','Dozen'];
+const UNITS = ['Pcs','Kg','Gram','Tonne','Metre','Cm','Feet','Inch','Litre','Ml','Box','Set','Pair','Sqft','Sqm','Bundle','Dozen','Roll','Coil','Drum','Tin','Can','Bag','Bottle','Tube','Sheet','Bar','Unit'];
 const TAX_RATES = [0,5,12,18,28];
 
 const emptyBill: Bill = { bill_number:'', invoice_no:'', vendor_name:'', vendor_gstin:'', buyer_gstin:'', bill_date:new Date().toISOString().split('T')[0], due_date:'', transport:'', vehicle_no:'', place_of_supply:'', eway_bill:'', total_amount:0, paid_amount:0, status:'Unpaid', notes:'' };
