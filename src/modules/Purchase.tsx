@@ -244,13 +244,25 @@ const Purchase: React.FC = () => {
     const lastBillId = vendorBills[0].id;
     const lastItems = billItems.filter(i => i.bill_id === lastBillId);
     if (lastItems.length === 0) { showToast("That vendor's last bill had no items saved.",'error'); return; }
-    setItems(lastItems.map(i => calcItem({ ...i, id: undefined, bill_id: undefined })));
+    setItems(lastItems.map(i => { const { id, bill_id, ...rest } = i; return calcItem(rest as BillItem); }));
     showToast(`Loaded ${lastItems.length} item(s) from last bill — adjust qty/rate as needed.`,'success');
   };
 
   // ── Save Bill ──────────────────────────────────────────────────────────
   const saveBill = async () => {
     if(!billForm.bill_number||!billForm.vendor_name) { showToast('Bill number and vendor required.','error'); return; }
+    const enteredRows = items.filter(i => i.quantity || i.unit_price || i.hsn_code || i.product_name);
+    const validItems0 = items.filter(i=>i.product_name?.trim());
+    if (enteredRows.length > 0 && validItems0.length === 0) {
+      showToast('⚠️ No item has a Product Name filled in — nothing was saved. Add a product name to each row before saving.','error');
+      return;
+    }
+    if (enteredRows.length > validItems0.length) {
+      const proceed = window.confirm(
+        `${enteredRows.length - validItems0.length} item row(s) are missing a Product Name and will be DROPPED if you continue (their Qty/Rate/HSN will be lost).\n\nContinue saving anyway?`
+      );
+      if (!proceed) return;
+    }
     const dup = findDuplicateBill();
     if (dup) {
       const proceed = window.confirm(
@@ -270,7 +282,7 @@ const Purchase: React.FC = () => {
       if (delErr) { showToast('Bill saved, but failed to clear old items: '+delErr.message,'error'); setSaving(false); fetchData(); return; }
       const validItems = items.filter(i=>i.product_name);
       if(validItems.length>0) {
-        const itemPayload = validItems.map(i=>({...i,bill_id:editingBill.id,id:undefined}));
+        const itemPayload = validItems.map(i=>{ const { id, ...rest } = i; return {...rest, bill_id:editingBill.id}; });
         const { error: itemErr } = await supabase.from('purchase_items').insert(itemPayload);
         if (itemErr) { showToast('Bill header saved, but items FAILED to save: '+itemErr.message,'error'); setSaving(false); fetchData(); return; }
       }
@@ -966,7 +978,7 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                         {items.map((item,i)=>(
                           <tr key={i} className="border-b border-gray-100">
                             <td className="p-1">
-                              <input ref={setFieldRef(i,'name')} onKeyDown={e=>handleRowKeyDown(e,i,'name')} value={item.product_name} onChange={e=>updateItem(i,'product_name',e.target.value)} list="product-name-list" placeholder="e.g. HR COIL 72083940" className="w-36 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none"/>
+                              <input ref={setFieldRef(i,'name')} onKeyDown={e=>handleRowKeyDown(e,i,'name')} value={item.product_name} onChange={e=>updateItem(i,'product_name',e.target.value)} list="product-name-list" placeholder="e.g. HR COIL 72083940" className={`w-36 border rounded px-2 py-1 text-xs focus:outline-none ${!item.product_name?.trim() && (item.quantity||item.unit_price||item.hsn_code) ? 'border-red-300 bg-red-50' : 'border-gray-200'}`}/>
                               <input ref={setFieldRef(i,'desc')} onKeyDown={e=>handleRowKeyDown(e,i,'desc')} value={item.description||''} onChange={e=>updateItem(i,'description',e.target.value)} placeholder="spec e.g. 12G4'" className="w-36 border border-gray-100 rounded px-2 py-1 text-[11px] italic text-gray-500 focus:outline-none mt-1"/>
                             </td>
                             <td className="p-1"><input ref={setFieldRef(i,'hsn')} onKeyDown={e=>handleRowKeyDown(e,i,'hsn')} value={item.hsn_code||''} onChange={e=>updateItem(i,'hsn_code',e.target.value)} placeholder="84821020" className="w-20 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none font-mono"/></td>
