@@ -95,6 +95,39 @@ const Purchase: React.FC = () => {
   const [filterMinAmt, setFilterMinAmt] = useState('');
   const [filterMaxAmt, setFilterMaxAmt] = useState('');
 
+  // Filter + sort bills — computed early so the stat cards above can reflect
+  // whatever filter is currently active (e.g. filtering to one vendor shows
+  // that vendor's totals, not the whole company's).
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const availableYears = [...new Set(bills.map(b=>new Date(b.bill_date).getFullYear()))].sort((a,b)=>b-a);
+  const availableVendors = [...new Set(bills.map(b=>b.vendor_name))].sort();
+  const filteredBills = bills
+    .filter(b => {
+      const d = new Date(b.bill_date);
+      if(filterMonth && d.getMonth() !== Number(filterMonth)) return false;
+      if(filterYear && d.getFullYear() !== Number(filterYear)) return false;
+      if(filterVendor && b.vendor_name !== filterVendor) return false;
+      if(filterStatus) {
+        const isOverdue = b.status!=='Paid' && b.due_date && new Date(b.due_date) < new Date();
+        if (filterStatus === 'Overdue' && !isOverdue) return false;
+        if (filterStatus !== 'Overdue' && b.status !== filterStatus) return false;
+      }
+      if(filterMinAmt && b.total_amount < Number(filterMinAmt)) return false;
+      if(filterMaxAmt && b.total_amount > Number(filterMaxAmt)) return false;
+      if(searchText.trim()) {
+        const q = searchText.trim().toLowerCase();
+        const haystack = [b.bill_number, b.invoice_no, b.vendor_name, b.vendor_gstin, b.notes].filter(Boolean).join(' ').toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    })
+    .sort((a,b) => sortOrder==='newest'
+      ? new Date(b.bill_date).getTime() - new Date(a.bill_date).getTime()
+      : new Date(a.bill_date).getTime() - new Date(b.bill_date).getTime()
+    );
+  const activeFilterCount = [filterMonth,filterYear,filterVendor,filterStatus,filterMinAmt,filterMaxAmt,searchText].filter(Boolean).length;
+  const clearAllFilters = () => { setFilterMonth(''); setFilterYear(''); setFilterVendor(''); setFilterStatus(''); setFilterMinAmt(''); setFilterMaxAmt(''); setSearchText(''); };
+
   const showToast = (msg:string,type:'success'|'error') => { setToast({msg,type}); setTimeout(()=>setToast(null), type==='error'?7000:3000); };
 
   const fetchData = async () => {
@@ -110,10 +143,10 @@ const Purchase: React.FC = () => {
   };
   useEffect(()=>{ fetchData(); },[]);
 
-  const totalBills = bills.reduce((s,b)=>s+b.total_amount,0);
-  const totalPaid = bills.reduce((s,b)=>s+b.paid_amount,0);
+  const totalBills = filteredBills.reduce((s,b)=>s+b.total_amount,0);
+  const totalPaid = filteredBills.reduce((s,b)=>s+b.paid_amount,0);
   const totalDue = totalBills - totalPaid;
-  const overdueBills = bills.filter(b=>b.status!=='Paid'&&b.due_date&&new Date(b.due_date)<new Date()).length;
+  const overdueBills = filteredBills.filter(b=>b.status!=='Paid'&&b.due_date&&new Date(b.due_date)<new Date()).length;
 
   // ── Keyboard navigation for the items table ─────────────────────────────
   // Lets the user press Enter to jump field-to-field (Name→HSN→Qty→Unit→
@@ -630,37 +663,7 @@ If a field is not visible on the invoice, use empty string "" for text fields or
     priceMap[groupKey].push({vendor:bill.vendor_name,price:item.unit_price,date:bill.bill_date,productName:item.product_name,description:spec});
   });
 
-  // Filter + sort bills
-  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const availableYears = [...new Set(bills.map(b=>new Date(b.bill_date).getFullYear()))].sort((a,b)=>b-a);
-  const availableVendors = [...new Set(bills.map(b=>b.vendor_name))].sort();
-  const filteredBills = bills
-    .filter(b => {
-      const d = new Date(b.bill_date);
-      if(filterMonth && d.getMonth() !== Number(filterMonth)) return false;
-      if(filterYear && d.getFullYear() !== Number(filterYear)) return false;
-      if(filterVendor && b.vendor_name !== filterVendor) return false;
-      if(filterStatus) {
-        const isOverdue = b.status!=='Paid' && b.due_date && new Date(b.due_date) < new Date();
-        if (filterStatus === 'Overdue' && !isOverdue) return false;
-        if (filterStatus !== 'Overdue' && b.status !== filterStatus) return false;
-      }
-      if(filterMinAmt && b.total_amount < Number(filterMinAmt)) return false;
-      if(filterMaxAmt && b.total_amount > Number(filterMaxAmt)) return false;
-      if(searchText.trim()) {
-        const q = searchText.trim().toLowerCase();
-        const haystack = [b.bill_number, b.invoice_no, b.vendor_name, b.vendor_gstin, b.notes].filter(Boolean).join(' ').toLowerCase();
-        if (!haystack.includes(q)) return false;
-      }
-      return true;
-    })
-    .sort((a,b) => sortOrder==='newest'
-      ? new Date(b.bill_date).getTime() - new Date(a.bill_date).getTime()
-      : new Date(a.bill_date).getTime() - new Date(b.bill_date).getTime()
-    );
-  const activeFilterCount = [filterMonth,filterYear,filterVendor,filterStatus,filterMinAmt,filterMaxAmt,searchText].filter(Boolean).length;
-  const clearAllFilters = () => { setFilterMonth(''); setFilterYear(''); setFilterVendor(''); setFilterStatus(''); setFilterMinAmt(''); setFilterMaxAmt(''); setSearchText(''); };
-
+  // Filter + sort bills (moved up — see right after filter state declarations)
   const grandItemTotal = items.filter(i=>i.product_name).reduce((s,i)=>s+i.total_price,0);
   const grandTaxTotal = items.filter(i=>i.product_name).reduce((s,i)=>s+i.tax_amount,0);
   const grandSubTotal = items.filter(i=>i.product_name).reduce((s,i)=>s+i.amount_before_tax,0);
@@ -672,7 +675,7 @@ If a field is not visible on the invoice, use empty string "" for text fields or
       <AnimatePresence>{toast&&<motion.div initial={{opacity:0,y:-20}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-20}} className={`fixed top-5 right-5 z-50 px-5 py-3 rounded-xl shadow-lg text-white text-sm font-medium ${toast.type==='success'?'bg-green-600':'bg-red-500'}`}>{toast.msg}</motion.div>}</AnimatePresence>
 
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard title="Total Bills" value={loading?'...':String(bills.length)} change="+3" positive icon={<ShoppingCart size={20}/>} color="#2563EB" bg="#DBEAFE" delay={0.05}/>
+        <StatCard title="Total Bills" value={loading?'...':String(filteredBills.length)} change="+3" positive icon={<ShoppingCart size={20}/>} color="#2563EB" bg="#DBEAFE" delay={0.05}/>
         <StatCard title="Total Purchased" value={loading?'...':'₹'+totalBills.toLocaleString('en-IN')} change="+12%" positive icon={<IndianRupee size={20}/>} color="#7C3AED" bg="#EDE9FE" delay={0.1}/>
         <StatCard title="Amount Due" value={loading?'...':'₹'+totalDue.toLocaleString('en-IN')} change="" positive={false} icon={<AlertCircle size={20}/>} color="#DC2626" bg="#FEE2E2" delay={0.15}/>
         <StatCard title="Overdue" value={loading?'...':String(overdueBills)} change="" positive={false} icon={<TrendingDown size={20}/>} color="#D97706" bg="#FEF3C7" delay={0.2}/>
