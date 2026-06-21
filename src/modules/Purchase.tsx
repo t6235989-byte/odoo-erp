@@ -89,6 +89,11 @@ const Purchase: React.FC = () => {
   const [filterMonth, setFilterMonth] = useState('');
   const [filterYear, setFilterYear] = useState('');
   const [sortOrder, setSortOrder] = useState<'newest'|'oldest'>('newest');
+  const [searchText, setSearchText] = useState('');
+  const [filterVendor, setFilterVendor] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterMinAmt, setFilterMinAmt] = useState('');
+  const [filterMaxAmt, setFilterMaxAmt] = useState('');
 
   const showToast = (msg:string,type:'success'|'error') => { setToast({msg,type}); setTimeout(()=>setToast(null), type==='error'?7000:3000); };
 
@@ -628,17 +633,33 @@ If a field is not visible on the invoice, use empty string "" for text fields or
   // Filter + sort bills
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const availableYears = [...new Set(bills.map(b=>new Date(b.bill_date).getFullYear()))].sort((a,b)=>b-a);
+  const availableVendors = [...new Set(bills.map(b=>b.vendor_name))].sort();
   const filteredBills = bills
     .filter(b => {
       const d = new Date(b.bill_date);
       if(filterMonth && d.getMonth() !== Number(filterMonth)) return false;
       if(filterYear && d.getFullYear() !== Number(filterYear)) return false;
+      if(filterVendor && b.vendor_name !== filterVendor) return false;
+      if(filterStatus) {
+        const isOverdue = b.status!=='Paid' && b.due_date && new Date(b.due_date) < new Date();
+        if (filterStatus === 'Overdue' && !isOverdue) return false;
+        if (filterStatus !== 'Overdue' && b.status !== filterStatus) return false;
+      }
+      if(filterMinAmt && b.total_amount < Number(filterMinAmt)) return false;
+      if(filterMaxAmt && b.total_amount > Number(filterMaxAmt)) return false;
+      if(searchText.trim()) {
+        const q = searchText.trim().toLowerCase();
+        const haystack = [b.bill_number, b.invoice_no, b.vendor_name, b.vendor_gstin, b.notes].filter(Boolean).join(' ').toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
       return true;
     })
     .sort((a,b) => sortOrder==='newest'
       ? new Date(b.bill_date).getTime() - new Date(a.bill_date).getTime()
       : new Date(a.bill_date).getTime() - new Date(b.bill_date).getTime()
     );
+  const activeFilterCount = [filterMonth,filterYear,filterVendor,filterStatus,filterMinAmt,filterMaxAmt,searchText].filter(Boolean).length;
+  const clearAllFilters = () => { setFilterMonth(''); setFilterYear(''); setFilterVendor(''); setFilterStatus(''); setFilterMinAmt(''); setFilterMaxAmt(''); setSearchText(''); };
 
   const grandItemTotal = items.filter(i=>i.product_name).reduce((s,i)=>s+i.total_price,0);
   const grandTaxTotal = items.filter(i=>i.product_name).reduce((s,i)=>s+i.tax_amount,0);
@@ -672,22 +693,41 @@ If a field is not visible on the invoice, use empty string "" for text fields or
               className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"><Plus size={13}/> New Bill</button>
           </div>
           {/* Filters */}
-          <div className="flex gap-2 flex-wrap items-center mb-4 p-3 bg-gray-50 rounded-xl">
-            <span className="text-xs font-medium text-gray-500">Filter:</span>
-            <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white">
-              <option value="">All Months</option>
-              {['January','February','March','April','May','June','July','August','September','October','November','December'].map((m,i)=><option key={i} value={i}>{m}</option>)}
-            </select>
-            <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white">
-              <option value="">All Years</option>
-              {availableYears.map(y=><option key={y} value={y}>{y}</option>)}
-            </select>
-            <select value={sortOrder} onChange={e=>setSortOrder(e.target.value as any)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white">
-              <option value="newest">↓ Newest First</option>
-              <option value="oldest">↑ Oldest First</option>
-            </select>
-            {(filterMonth||filterYear) && <button onClick={()=>{setFilterMonth('');setFilterYear('');}} className="text-xs text-red-500 hover:text-red-700 px-2 py-1 bg-red-50 rounded-lg">✕ Clear</button>}
-            <span className="text-xs text-gray-400 ml-auto">{filteredBills.length} bill{filteredBills.length!==1?'s':''} shown</span>
+          <div className="flex flex-col gap-3 mb-4 p-3 bg-gray-50 rounded-xl">
+            <div className="flex gap-2 flex-wrap items-center">
+              <input value={searchText} onChange={e=>setSearchText(e.target.value)} placeholder="🔍 Search vendor, bill no, GST, notes..." className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none bg-white w-64"/>
+              <select value={filterVendor} onChange={e=>setFilterVendor(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white">
+                <option value="">All Vendors</option>
+                {availableVendors.map(v=><option key={v} value={v}>{v}</option>)}
+              </select>
+              <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white">
+                <option value="">All Statuses</option>
+                <option value="Paid">Paid</option>
+                <option value="Unpaid">Unpaid</option>
+                <option value="Partial">Partial</option>
+                <option value="Overdue">Overdue</option>
+              </select>
+            </div>
+            <div className="flex gap-2 flex-wrap items-center">
+              <span className="text-xs font-medium text-gray-500">Filter:</span>
+              <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white">
+                <option value="">All Months</option>
+                {['January','February','March','April','May','June','July','August','September','October','November','December'].map((m,i)=><option key={i} value={i}>{m}</option>)}
+              </select>
+              <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white">
+                <option value="">All Years</option>
+                {availableYears.map(y=><option key={y} value={y}>{y}</option>)}
+              </select>
+              <input value={filterMinAmt} onChange={e=>setFilterMinAmt(e.target.value)} type="number" placeholder="Min ₹" className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white w-24"/>
+              <span className="text-xs text-gray-400">to</span>
+              <input value={filterMaxAmt} onChange={e=>setFilterMaxAmt(e.target.value)} type="number" placeholder="Max ₹" className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white w-24"/>
+              <select value={sortOrder} onChange={e=>setSortOrder(e.target.value as any)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white">
+                <option value="newest">↓ Newest First</option>
+                <option value="oldest">↑ Oldest First</option>
+              </select>
+              {activeFilterCount>0 && <button onClick={clearAllFilters} className="text-xs text-red-500 hover:text-red-700 px-2 py-1 bg-red-50 rounded-lg">✕ Clear {activeFilterCount} filter{activeFilterCount!==1?'s':''}</button>}
+              <span className="text-xs text-gray-400 ml-auto">{filteredBills.length} bill{filteredBills.length!==1?'s':''} shown</span>
+            </div>
           </div>
           {loading?<div className="flex items-center justify-center py-12 text-gray-400"><Loader size={20} className="animate-spin mr-2"/>Loading...</div>
           :filteredBills.length===0?<div className="text-center py-12 text-gray-400"><ShoppingCart size={36} className="mx-auto mb-2 opacity-30"/><p>{bills.length>0?'No bills match filter':'No bills yet'}</p></div>
