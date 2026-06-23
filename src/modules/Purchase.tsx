@@ -94,6 +94,8 @@ const Purchase: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterMinAmt, setFilterMinAmt] = useState('');
   const [filterMaxAmt, setFilterMaxAmt] = useState('');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
 
   // Filter + sort bills — computed early so the stat cards above can reflect
   // whatever filter is currently active (e.g. filtering to one vendor shows
@@ -106,6 +108,8 @@ const Purchase: React.FC = () => {
       const d = new Date(b.bill_date);
       if(filterMonth && d.getMonth() !== Number(filterMonth)) return false;
       if(filterYear && d.getFullYear() !== Number(filterYear)) return false;
+      if(filterDateFrom && b.bill_date < filterDateFrom) return false;
+      if(filterDateTo && b.bill_date > filterDateTo) return false;
       if(filterVendor && b.vendor_name !== filterVendor) return false;
       if(filterStatus) {
         const isOverdue = b.status!=='Paid' && b.due_date && new Date(b.due_date) < new Date();
@@ -116,7 +120,15 @@ const Purchase: React.FC = () => {
       if(filterMaxAmt && b.total_amount > Number(filterMaxAmt)) return false;
       if(searchText.trim()) {
         const q = searchText.trim().toLowerCase();
-        const haystack = [b.bill_number, b.invoice_no, b.vendor_name, b.vendor_gstin, b.notes].filter(Boolean).join(' ').toLowerCase();
+        // Pull in this bill's payment notes/cheque numbers too, so searching
+        // "167825" or "cheque" finds the bill via its payment record.
+        const billPayments = payments.filter(p=>p.bill_id===b.id);
+        const paymentNotes = billPayments.map(p=>p.note).filter(Boolean).join(' ');
+        const haystack = [
+          b.bill_number, b.invoice_no, b.vendor_name, b.vendor_gstin, b.notes,
+          String(b.total_amount), String(Math.round(b.total_amount)),
+          paymentNotes,
+        ].filter(Boolean).join(' ').toLowerCase();
         if (!haystack.includes(q)) return false;
       }
       return true;
@@ -125,8 +137,8 @@ const Purchase: React.FC = () => {
       ? new Date(b.bill_date).getTime() - new Date(a.bill_date).getTime()
       : new Date(a.bill_date).getTime() - new Date(b.bill_date).getTime()
     );
-  const activeFilterCount = [filterMonth,filterYear,filterVendor,filterStatus,filterMinAmt,filterMaxAmt,searchText].filter(Boolean).length;
-  const clearAllFilters = () => { setFilterMonth(''); setFilterYear(''); setFilterVendor(''); setFilterStatus(''); setFilterMinAmt(''); setFilterMaxAmt(''); setSearchText(''); };
+  const activeFilterCount = [filterMonth,filterYear,filterVendor,filterStatus,filterMinAmt,filterMaxAmt,filterDateFrom,filterDateTo,searchText].filter(Boolean).length;
+  const clearAllFilters = () => { setFilterMonth(''); setFilterYear(''); setFilterVendor(''); setFilterStatus(''); setFilterMinAmt(''); setFilterMaxAmt(''); setFilterDateFrom(''); setFilterDateTo(''); setSearchText(''); };
 
   const showToast = (msg:string,type:'success'|'error') => { setToast({msg,type}); setTimeout(()=>setToast(null), type==='error'?7000:3000); };
 
@@ -698,7 +710,7 @@ If a field is not visible on the invoice, use empty string "" for text fields or
           {/* Filters */}
           <div className="flex flex-col gap-3 mb-4 p-3 bg-gray-50 rounded-xl">
             <div className="flex gap-2 flex-wrap items-center">
-              <input value={searchText} onChange={e=>setSearchText(e.target.value)} placeholder="🔍 Search vendor, bill no, GST, notes..." className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none bg-white w-64"/>
+              <input value={searchText} onChange={e=>setSearchText(e.target.value)} placeholder="🔍 Search anything: vendor, bill no, GST, amount, cheque no..." className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none bg-white w-72"/>
               <select value={filterVendor} onChange={e=>setFilterVendor(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white">
                 <option value="">All Vendors</option>
                 {availableVendors.map(v=><option key={v} value={v}>{v}</option>)}
@@ -730,6 +742,20 @@ If a field is not visible on the invoice, use empty string "" for text fields or
               </select>
               {activeFilterCount>0 && <button onClick={clearAllFilters} className="text-xs text-red-500 hover:text-red-700 px-2 py-1 bg-red-50 rounded-lg">✕ Clear {activeFilterCount} filter{activeFilterCount!==1?'s':''}</button>}
               <span className="text-xs text-gray-400 ml-auto">{filteredBills.length} bill{filteredBills.length!==1?'s':''} shown</span>
+            </div>
+            <div className="flex gap-2 flex-wrap items-center">
+              <span className="text-xs font-medium text-gray-500">Custom Range:</span>
+              <input value={filterDateFrom} onChange={e=>setFilterDateFrom(e.target.value)} type="date" className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white"/>
+              <span className="text-xs text-gray-400">to</span>
+              <input value={filterDateTo} onChange={e=>setFilterDateTo(e.target.value)} type="date" className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white"/>
+              <button onClick={()=>{
+                const now = new Date();
+                const fyStartYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear()-1; // FY starts April
+                setFilterDateFrom(`${fyStartYear}-04-01`);
+                setFilterDateTo(`${fyStartYear+1}-03-31`);
+                setFilterMonth(''); setFilterYear('');
+              }} className="text-xs text-purple-600 hover:text-purple-800 px-2 py-1 bg-purple-50 rounded-lg">📅 This Financial Year</button>
+              {(filterDateFrom||filterDateTo) && <button onClick={()=>{setFilterDateFrom('');setFilterDateTo('');}} className="text-xs text-gray-400 hover:text-gray-600">✕ Clear range</button>}
             </div>
           </div>
           {loading?<div className="flex items-center justify-center py-12 text-gray-400"><Loader size={20} className="animate-spin mr-2"/>Loading...</div>
