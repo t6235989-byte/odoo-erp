@@ -6,6 +6,8 @@ import { formatDate, formatDateTime } from '../utils/cn';
 import * as XLSX from 'xlsx';
 
 type BackupStatus = 'idle' | 'fetching' | 'done' | 'error';
+type RestoreRowState = { row: any; tableKey: string; tableLabel: string; status: 'new'|'exists'|'conflict'; existingRow?: any };
+type RestoreStatus = 'idle' | 'reading' | 'comparing' | 'ready' | 'restoring' | 'done' | 'error';
 
 const tables = [
   { key: 'employees',          label: 'Employees',         icon: '👥', color: '#0891B2' },
@@ -43,6 +45,13 @@ const Backup: React.FC = () => {
   const [selectedTables, setSelectedTables] = useState<string[]>(tables.map(t=>t.key));
   const [lastBackup, setLastBackup] = useState<string|null>(localStorage.getItem('last_backup')||null);
 
+  // ── Restore state ──────────────────────────────────────────────────────
+  const [restoreStatus, setRestoreStatus] = useState<RestoreStatus>('idle');
+  const [restoreError, setRestoreError] = useState<string|null>(null);
+  const [restorePreview, setRestorePreview] = useState<RestoreRowState[]>([]);
+  const [restoreProgress, setRestoreProgress] = useState<string[]>([]);
+  const [restoreSelectedNewIds, setRestoreSelectedNewIds] = useState<Set<string>>(new Set());
+
   const toggleTable = (key: string) => {
     setSelectedTables(prev => prev.includes(key) ? prev.filter(k=>k!==key) : [...prev,key]);
   };
@@ -59,6 +68,94 @@ const Backup: React.FC = () => {
       } catch(e) { log.push(`✗ ${table.label}: failed`); data[table.key] = []; }
     }
     return { data, log };
+  };
+
+  // ── Restore: read uploaded backup file and compare against live data ─────
+  // Safety model: this NEVER deletes or overwrites anything automatically.
+  // It only identifies rows that are missing from the live database (by id)
+  // and lets the user choose exactly which ones to add back in.
+  const handleRestoreFile = async (file: File) => {
+    setRestoreStatus('reading');
+    setRestoreError(null);
+    setRestorePreview([]);
+    setRestoreProgress([]);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      setRestoreStatus('comparing');
+      const allRows: RestoreRowState[] = [];
+      const log: string[] = [];
+
+      for (const table of tables) {
+        const sheet = wb.Sheets[table.label];
+        if (!sheet) continue; // this table wasn't in the backup file
+        const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: null });
+        if (rows.length === 0) continue;
+        if (!('id' in rows[0])) { log.push(`⚠ ${table.label}: no 'id' column, skipped (can't safely match rows)`); continue; }
+
+        // Fetch live ids for this table to compare against
+        const { data: liveRows, error } = await supabase.from(table.key).select('id, created_at');
+        if (error) { log.push(`✗ ${table.label}: ${error.message}`); continue; }
+        const liveIds = new Set((liveRows||[]).map((r:any)=>r.id));
+
+        let newCount = 0, existsCount = 0;
+        for (const row of rows) {
+          if (!row.id) continue;
+          if (liveIds.has(row.id)) {
+            existsCount++;
+            allRows.push({ row, tableKey: table.key, tableLabel: table.label, status: 'exists' });
+          } else {
+            newCount++;
+            allRows.push({ row, tableKey: table.key, tableLabel: table.label, status: 'new' });
+          }
+        }
+        log.push(`${table.label}: ${newCount} missing, ${existsCount} already present`);
+        setRestoreProgress([...log]);
+      }
+
+      setRestorePreview(allRows);
+      // Pre-select all "new" rows by default — user can deselect any they don't want
+      setRestoreSelectedNewIds(new Set(allRows.filter(r=>r.status==='new').map(r=>r.row.id)));
+      setRestoreStatus('ready');
+    } catch (e: any) {
+      console.error('Restore read failed:', e);
+      setRestoreError(e?.message || String(e) || "Could not read this file. Make sure it's a valid OdooERP backup .xlsx file.");
+      setRestoreStatus('error');
+    }
+  };
+
+  const toggleRestoreRow = (id: string) => {
+    setRestoreSelectedNewIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const runRestore = async () => {
+    setRestoreStatus('restoring');
+    const log: string[] = [];
+    const toRestore = restorePreview.filter(r => r.status === 'new' && restoreSelectedNewIds.has(r.row.id));
+    const byTable: Record<string, any[]> = {};
+    for (const r of toRestore) { (byTable[r.tableKey] ||= []).push(r.row); }
+
+    for (const [tableKey, rows] of Object.entries(byTable)) {
+      const label = tables.find(t=>t.key===tableKey)?.label || tableKey;
+      try {
+        const cleanRows = rows.map(r => {
+          const out: any = {};
+          for (const [k,v] of Object.entries(r)) out[k] = (v === '' || v === undefined) ? null : v;
+          return out;
+        });
+        const { error } = await supabase.from(tableKey).insert(cleanRows);
+        if (error) log.push(`✗ ${label}: FAILED — ${error.message}`);
+        else log.push(`✓ ${label}: restored ${rows.length} record(s)`);
+      } catch (e: any) {
+        log.push(`✗ ${label}: FAILED — ${e?.message || String(e)}`);
+      }
+      setRestoreProgress([...log]);
+    }
+    setRestoreStatus('done');
   };
 
   // ── Excel Export ────────────────────────────────────────────────────────
@@ -340,6 +437,111 @@ const Backup: React.FC = () => {
           </div>
         </motion.div>
       )}
+
+      {/* Restore from backup */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+        <div className="flex items-center gap-3 mb-1">
+          <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center text-2xl">♻️</div>
+          <div>
+            <h3 className="font-bold text-gray-800">Restore from Backup</h3>
+            <p className="text-xs text-gray-400">Upload a previous Excel backup to recover missing records.</p>
+          </div>
+        </div>
+        <div className="mt-3 p-3 bg-amber-50 border border-amber-100 rounded-xl text-xs text-amber-700">
+          <strong>🛡️ Safe by design:</strong> This never deletes or overwrites anything automatically. It only shows you what's <strong>missing</strong> from your live data, and adds back only what you approve.
+        </div>
+
+        {restoreStatus==='idle' && (
+          <label className="mt-4 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-200 rounded-xl py-8 cursor-pointer hover:border-amber-300 hover:bg-amber-50/50 transition-colors">
+            <Database size={28} className="text-gray-300"/>
+            <span className="text-sm text-gray-500">Click to upload your backup .xlsx file</span>
+            <input type="file" accept=".xlsx" className="hidden" onChange={e=>{ const f=e.target.files?.[0]; if(f) handleRestoreFile(f); }}/>
+          </label>
+        )}
+
+        {(restoreStatus==='reading'||restoreStatus==='comparing') && (
+          <div className="mt-4 flex items-center gap-2 text-sm text-gray-500 py-6 justify-center">
+            <Loader size={16} className="animate-spin"/> {restoreStatus==='reading'?'Reading backup file...':'Comparing against your live data...'}
+          </div>
+        )}
+
+        {restoreStatus==='error' && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+            ⚠️ {restoreError}
+            <button onClick={()=>setRestoreStatus('idle')} className="ml-3 underline">Try again</button>
+          </div>
+        )}
+
+        {restoreStatus==='ready' && (() => {
+          const newRows = restorePreview.filter(r=>r.status==='new');
+          const existsRows = restorePreview.filter(r=>r.status==='exists');
+          const byTableNew: Record<string, RestoreRowState[]> = {};
+          for (const r of newRows) { (byTableNew[r.tableLabel] ||= []).push(r); }
+          return (
+            <div className="mt-4 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-green-50 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-green-600">{newRows.length}</p>
+                  <p className="text-xs text-green-700">Missing — can be restored</p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-gray-500">{existsRows.length}</p>
+                  <p className="text-xs text-gray-500">Already exist — will be skipped</p>
+                </div>
+              </div>
+
+              {newRows.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-4">✅ Nothing missing — your live data already has every record from this backup.</p>
+              ) : (
+                <div className="max-h-80 overflow-y-auto border border-gray-100 rounded-xl divide-y divide-gray-100">
+                  {Object.entries(byTableNew).map(([label, rows]) => (
+                    <div key={label} className="p-3">
+                      <p className="text-xs font-bold text-gray-600 mb-2">{label} — {rows.length} missing record(s)</p>
+                      {rows.slice(0,8).map((r,i) => (
+                        <label key={i} className="flex items-center gap-2 py-1 text-xs text-gray-600 cursor-pointer">
+                          <input type="checkbox" checked={restoreSelectedNewIds.has(r.row.id)} onChange={()=>toggleRestoreRow(r.row.id)} className="rounded"/>
+                          <span className="truncate">{r.row.bill_number || r.row.name || r.row.employee_name || r.row.product_name || r.row.vendor_name || r.row.date || r.row.id}</span>
+                        </label>
+                      ))}
+                      {rows.length > 8 && <p className="text-xs text-gray-400 pl-6">...and {rows.length-8} more</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <button onClick={()=>{setRestoreStatus('idle');setRestorePreview([]);}} className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600">Cancel</button>
+                {newRows.length>0 && (
+                  <button onClick={runRestore} disabled={restoreSelectedNewIds.size===0} className="flex-1 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50">
+                    Restore {restoreSelectedNewIds.size} selected record(s)
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {restoreStatus==='restoring' && (
+          <div className="mt-4 flex items-center gap-2 text-sm text-gray-500 py-6 justify-center">
+            <Loader size={16} className="animate-spin"/> Restoring records...
+          </div>
+        )}
+
+        {restoreStatus==='done' && (
+          <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-xl text-sm text-green-700">
+            ✅ Restore complete! Refresh the relevant page (e.g. Attendance) to see the recovered records.
+            <button onClick={()=>{setRestoreStatus('idle');setRestorePreview([]);setRestoreProgress([]);}} className="ml-3 underline">Restore another file</button>
+          </div>
+        )}
+
+        {restoreProgress.length > 0 && (restoreStatus==='comparing'||restoreStatus==='restoring'||restoreStatus==='done') && (
+          <div className="mt-3 bg-gray-900 rounded-xl p-3 max-h-32 overflow-y-auto">
+            {restoreProgress.map((line,i)=>(
+              <p key={i} className={`text-xs font-mono ${line.startsWith('✓')?'text-green-400':line.startsWith('⚠')?'text-yellow-400':line.startsWith('✗')?'text-red-400':'text-gray-400'}`}>{line}</p>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Instructions */}
       <div className="bg-blue-50 rounded-2xl p-5 border border-blue-100">
