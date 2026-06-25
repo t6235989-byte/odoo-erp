@@ -261,6 +261,69 @@ const Purchase: React.FC = () => {
     );
   };
 
+  // ── Party Ledger sync ────────────────────────────────────────────────────
+  // Keeps Party Ledger automatically up to date with Purchase activity.
+  // Every bill becomes a "Purchase Bill" entry (increases what you owe);
+  // every payment becomes a "Vendor Payment" entry (reduces what you owe).
+  // Manually-added parties/transactions in Party Ledger are never touched —
+  // this only creates/updates rows tagged with a matching `reference` id,
+  // so re-saving a bill updates its existing ledger entry instead of
+  // duplicating it.
+  const findOrCreateVendorParty = async (vendorName: string, gstin?: string): Promise<string|null> => {
+    if (!vendorName.trim()) return null;
+    const { data: existingParties } = await supabase.from('parties').select('id,name').eq('party_type','Vendor');
+    const match = (existingParties||[]).find((p:any) => vendorNameMatches(p.name, vendorName));
+    if (match) return match.id;
+    const { data, error } = await supabase.from('parties').insert([{
+      name: vendorName, party_type: 'Vendor', gstin: gstin||null, phone:'', email:'', address:'',
+    }]).select().single();
+    if (error) { console.error('Party Ledger sync (create party) failed:', error.message); return null; }
+    return data?.id || null;
+  };
+
+  const syncBillToLedger = async (bill: Bill) => {
+    try {
+      const partyId = await findOrCreateVendorParty(bill.vendor_name, bill.vendor_gstin);
+      if (!partyId) return;
+      const partyRow = (await supabase.from('parties').select('name').eq('id',partyId).single()).data;
+      const ref = `purchase-bill:${bill.id}`;
+      const payload = {
+        party_id: partyId, party_name: partyRow?.name || bill.vendor_name,
+        transaction_date: bill.bill_date, type: 'Purchase Bill', amount: bill.total_amount,
+        description: `Bill ${bill.bill_number}`, reference: ref,
+      };
+      const { data: existing } = await supabase.from('party_transactions').select('id').eq('reference',ref).maybeSingle();
+      if (existing) await supabase.from('party_transactions').update(payload).eq('id',existing.id);
+      else await supabase.from('party_transactions').insert([payload]);
+    } catch (e) { console.error('Party Ledger sync (bill) failed:', e); }
+  };
+
+  const syncPaymentToLedger = async (payment: Payment) => {
+    try {
+      const partyId = await findOrCreateVendorParty(payment.vendor_name);
+      if (!partyId) return;
+      const partyRow = (await supabase.from('parties').select('name').eq('id',partyId).single()).data;
+      const ref = `purchase-payment:${payment.id}`;
+      const payload = {
+        party_id: partyId, party_name: partyRow?.name || payment.vendor_name,
+        transaction_date: payment.payment_date, type: 'Vendor Payment', amount: payment.amount,
+        description: payment.note || 'Payment', reference: ref,
+      };
+      const { data: existing } = await supabase.from('party_transactions').select('id').eq('reference',ref).maybeSingle();
+      if (existing) await supabase.from('party_transactions').update(payload).eq('id',existing.id);
+      else await supabase.from('party_transactions').insert([payload]);
+    } catch (e) { console.error('Party Ledger sync (payment) failed:', e); }
+  };
+
+  const removeBillFromLedger = async (billId: string) => {
+    try { await supabase.from('party_transactions').delete().eq('reference', `purchase-bill:${billId}`); }
+    catch (e) { console.error('Party Ledger sync (delete bill) failed:', e); }
+  };
+  const removePaymentFromLedger = async (paymentId: string) => {
+    try { await supabase.from('party_transactions').delete().eq('reference', `purchase-payment:${paymentId}`); }
+    catch (e) { console.error('Party Ledger sync (delete payment) failed:', e); }
+  };
+
   // Auto-fill vendor GSTIN + last-used transport details when a known vendor is picked
   const handleVendorPick = (name: string) => {
     const match = vendors.find(v => vendorNameMatches(v.name, name));
@@ -356,6 +419,7 @@ const Purchase: React.FC = () => {
         }
       }
     }
+    if (billId) await syncBillToLedger({ ...payload, id: billId } as Bill);
     showToast(editingBill?'Bill updated!':'Bill created & inventory updated!','success');
     setShowBillModal(false); setEditingBill(null); setBillForm(emptyBill); setItems([emptyItem()]);
     fetchData(); setSaving(false);
@@ -500,12 +564,14 @@ If a field is not visible on the invoice, use empty string "" for text fields or
       if (error) { showToast('Failed to update payment: '+error.message,'error'); setSaving(false); return; }
       const updatedPayments = payments.map(p => p.id===editingPayment.id ? {...p, ...payForm} : p);
       await recalcBillPaidStatus(payForm.bill_id, updatedPayments);
+      await syncPaymentToLedger({ ...payForm, id: editingPayment.id });
       showToast('Payment updated!','success');
     } else {
       const { data, error } = await supabase.from('purchase_payments').insert([payForm]).select().single();
       if (error) { showToast('Failed to record payment: '+error.message,'error'); setSaving(false); return; }
       const updatedPayments = [...payments, data];
       await recalcBillPaidStatus(payForm.bill_id, updatedPayments);
+      if (data?.id) await syncPaymentToLedger(data);
       showToast('Payment recorded!','success');
     }
     setShowPayModal(false); setEditingPayment(null); fetchData(); setSaving(false);
@@ -518,10 +584,11 @@ If a field is not visible on the invoice, use empty string "" for text fields or
     if (error) { showToast('Failed to delete payment: '+error.message,'error'); setDeleting(null); return; }
     const updatedPayments = payments.filter(p=>p.id!==payment.id);
     await recalcBillPaidStatus(payment.bill_id, updatedPayments);
+    await removePaymentFromLedger(payment.id);
     showToast('Payment deleted.','success'); fetchData(); setDeleting(null);
   };
 
-  const deleteBill = async (id:string) => { setDeleting(id); await supabase.from('purchase_bills').delete().eq('id',id); showToast('Deleted.','success'); fetchData(); setDeleting(null); };
+  const deleteBill = async (id:string) => { setDeleting(id); await supabase.from('purchase_bills').delete().eq('id',id); await removeBillFromLedger(id); showToast('Deleted.','success'); fetchData(); setDeleting(null); };
   const deleteVendor = async (id:string) => { setDeleting(id); await supabase.from('vendors').delete().eq('id',id); showToast('Deleted.','success'); fetchData(); setDeleting(null); };
 
   // ── PDF GST Invoice ────────────────────────────────────────────────────

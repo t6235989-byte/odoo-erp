@@ -5,16 +5,23 @@ import StatCard from '../components/StatCard';
 import { supabase } from '../lib/supabase';
 import { formatDate } from '../utils/cn';
 
-type Party = { id?: string; name: string; phone: string; email: string; address: string; party_type: string; };
+type Party = { id?: string; name: string; phone: string; email: string; address: string; party_type: string; gstin?: string; };
 type Txn = { id?: string; party_id?: string; party_name: string; transaction_date: string; type: string; amount: number; description: string; reference: string; };
 
-const txnTypes = ['Sale','Payment','Return','Adjustment','Credit Note'];
+// Customer-direction types: Sale increases what they owe YOU (Dr).
+// Vendor-direction types: Purchase Bill increases what YOU owe THEM (Cr) —
+// the reverse of Sale. Vendor Payment reduces it (Dr), opposite of Payment.
+const customerTxnTypes = ['Sale','Payment','Return','Adjustment','Credit Note'];
+const vendorTxnTypes = ['Purchase Bill','Vendor Payment'];
+const txnTypes = [...customerTxnTypes, ...vendorTxnTypes];
 const txnStyle: Record<string,{bg:string;color:string;sign:string}> = {
-  Sale:        { bg:'#DBEAFE', color:'#2563EB', sign:'+' },
-  Payment:     { bg:'#DCFCE7', color:'#16A34A', sign:'-' },
-  Return:      { bg:'#FEE2E2', color:'#DC2626', sign:'-' },
-  Adjustment:  { bg:'#FEF3C7', color:'#D97706', sign:'±' },
-  'Credit Note':{ bg:'#EDE9FE', color:'#7C3AED', sign:'-' },
+  Sale:          { bg:'#DBEAFE', color:'#2563EB', sign:'+' },
+  Payment:       { bg:'#DCFCE7', color:'#16A34A', sign:'-' },
+  Return:        { bg:'#FEE2E2', color:'#DC2626', sign:'-' },
+  Adjustment:    { bg:'#FEF3C7', color:'#D97706', sign:'±' },
+  'Credit Note': { bg:'#EDE9FE', color:'#7C3AED', sign:'-' },
+  'Purchase Bill':  { bg:'#FFEDD5', color:'#EA580C', sign:'+' },
+  'Vendor Payment': { bg:'#CFFAFE', color:'#0891B2', sign:'-' },
 };
 
 const emptyParty: Party = { name:'', phone:'', email:'', address:'', party_type:'Customer' };
@@ -50,11 +57,15 @@ const PartyLedger: React.FC = () => {
   useEffect(()=>{ fetchData(); },[]);
 
   // ── Balance helpers ────────────────────────────────────────────────────
+  // Positive balance = Dr = they owe YOU (customer) — increased by Sale, reduced by Payment/Return/Credit Note.
+  // Negative balance = Cr = YOU owe them (vendor) — increased by Purchase Bill, reduced by Vendor Payment.
   const getBalance = (partyName: string) => {
     const pTxns = txns.filter(t=>t.party_name===partyName);
     return pTxns.reduce((s,t) => {
       if(t.type==='Sale') return s + t.amount;
       if(t.type==='Payment'||t.type==='Return'||t.type==='Credit Note') return s - t.amount;
+      if(t.type==='Purchase Bill') return s - t.amount;
+      if(t.type==='Vendor Payment') return s + t.amount;
       return s;
     }, 0);
   };
@@ -133,8 +144,11 @@ const PartyLedger: React.FC = () => {
       <thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Ref</th><th>Debit (Dr)</th><th>Credit (Cr)</th><th>Balance</th></tr></thead>
       <tbody>
         ${pTxns.map(t=>{
-          const isDebit = t.type==='Sale';
-          if(isDebit) running+=t.amount; else running-=t.amount;
+          const isDebit = t.type==='Sale' || t.type==='Vendor Payment';
+          if(t.type==='Sale') running+=t.amount;
+          else if(t.type==='Purchase Bill') running-=t.amount;
+          else if(t.type==='Vendor Payment') running+=t.amount;
+          else running-=t.amount;
           return `<tr>
             <td>${formatDate(t.transaction_date)}</td>
             <td>${t.type}</td>
@@ -159,10 +173,16 @@ const PartyLedger: React.FC = () => {
   const filteredParties = parties.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())||p.phone?.includes(search));
   const partyTxns = selectedParty ? txns.filter(t=>t.party_name===selectedParty.name).sort((a,b)=>new Date(a.transaction_date).getTime()-new Date(b.transaction_date).getTime()) : [];
 
-  // Running balance for ledger view
+  // Running balance for ledger view.
+  // Sale/Purchase Bill increase what's owed; Payment/Vendor Payment/Return/
+  // Adjustment/Credit Note reduce it — but the SIGN of "owed" flips direction
+  // depending on whether it's customer-side or vendor-side activity.
   let runBal = 0;
   const txnsWithBalance = partyTxns.map(t => {
-    if(t.type==='Sale') runBal+=t.amount; else runBal-=t.amount;
+    if(t.type==='Sale') runBal+=t.amount;
+    else if(t.type==='Purchase Bill') runBal-=t.amount;
+    else if(t.type==='Vendor Payment') runBal+=t.amount;
+    else runBal-=t.amount; // Payment, Return, Adjustment, Credit Note
     return { ...t, runningBalance: runBal };
   });
 
@@ -202,7 +222,7 @@ const PartyLedger: React.FC = () => {
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center text-violet-600 font-bold text-sm">{p.name[0]}</div>
                       <div>
-                        <p className="font-semibold text-gray-800 group-hover:text-violet-700">{p.name}</p>
+                        <p className="font-semibold text-gray-800 group-hover:text-violet-700">{p.name} <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded-full ${p.party_type==='Vendor'?'bg-orange-100 text-orange-600':'bg-blue-100 text-blue-600'}`}>{p.party_type==='Vendor'?'Vendor':'Customer'}</span></p>
                         <p className="text-xs text-gray-400">{p.phone} · {pTxnCount} transactions</p>
                       </div>
                     </div>
@@ -211,7 +231,7 @@ const PartyLedger: React.FC = () => {
                         <p className={`font-bold text-sm ${bal>0?'text-red-500':bal<0?'text-green-600':'text-gray-400'}`}>
                           {bal>0?`₹${bal.toLocaleString('en-IN')} Dr`:bal<0?`₹${Math.abs(bal).toLocaleString('en-IN')} Cr`:'✓ Clear'}
                         </p>
-                        <p className="text-xs text-gray-400">{bal>0?'Receivable':bal<0?'Advance':'Settled'}</p>
+                        <p className="text-xs text-gray-400">{p.party_type==='Vendor' ? (bal>0?'Advance Paid':bal<0?'Payable':'Settled') : (bal>0?'Receivable':bal<0?'Advance':'Settled')}</p>
                       </div>
                       <div className="flex gap-1" onClick={e=>e.stopPropagation()}>
                         <button onClick={()=>{ setEditingParty(p); setPartyForm({...p}); setShowPartyModal(true); }} className="w-7 h-7 bg-blue-50 rounded flex items-center justify-center text-blue-500"><Edit2 size={11}/></button>
@@ -239,7 +259,7 @@ const PartyLedger: React.FC = () => {
                 </div>
               </div>
               <div className="flex gap-2">
-                <button onClick={()=>{ setTxnForm({...emptyTxn,party_name:selectedParty.name}); setEditingTxn(null); setShowTxnModal(true); }}
+                <button onClick={()=>{ setTxnForm({...emptyTxn,party_name:selectedParty.name,type:selectedParty.party_type==='Vendor'?'Purchase Bill':'Sale'}); setEditingTxn(null); setShowTxnModal(true); }}
                   className="flex items-center gap-1 px-3 py-1.5 bg-violet-600 text-white rounded-lg text-sm hover:bg-violet-700"><Plus size={13}/> Add Entry</button>
                 <button onClick={()=>exportPDF(selectedParty)} className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"><Download size={13}/> PDF</button>
               </div>
@@ -248,14 +268,15 @@ const PartyLedger: React.FC = () => {
             {/* Balance summary */}
             {(() => {
               const bal = getBalance(selectedParty.name);
-              const totalSales = partyTxns.filter(t=>t.type==='Sale').reduce((s,t)=>s+t.amount,0);
-              const totalPaid = partyTxns.filter(t=>t.type==='Payment'||t.type==='Credit Note'||t.type==='Return').reduce((s,t)=>s+t.amount,0);
+              const isVendor = selectedParty.party_type === 'Vendor';
+              const totalDebit = partyTxns.filter(t=> isVendor ? t.type==='Vendor Payment' : t.type==='Sale').reduce((s,t)=>s+t.amount,0);
+              const totalCredit = partyTxns.filter(t=> isVendor ? t.type==='Purchase Bill' : (t.type==='Payment'||t.type==='Credit Note'||t.type==='Return')).reduce((s,t)=>s+t.amount,0);
               return (
                 <div className="grid grid-cols-3 gap-3 mt-4">
-                  <div className="bg-blue-50 rounded-xl p-3 text-center"><p className="text-xs text-gray-500">Total Sales (Dr)</p><p className="font-bold text-blue-600">₹{totalSales.toLocaleString('en-IN')}</p></div>
-                  <div className="bg-green-50 rounded-xl p-3 text-center"><p className="text-xs text-gray-500">Total Received (Cr)</p><p className="font-bold text-green-600">₹{totalPaid.toLocaleString('en-IN')}</p></div>
+                  <div className="bg-blue-50 rounded-xl p-3 text-center"><p className="text-xs text-gray-500">{isVendor?'Total Paid (Dr)':'Total Sales (Dr)'}</p><p className="font-bold text-blue-600">₹{totalDebit.toLocaleString('en-IN')}</p></div>
+                  <div className="bg-orange-50 rounded-xl p-3 text-center"><p className="text-xs text-gray-500">{isVendor?'Total Purchases (Cr)':'Total Received (Cr)'}</p><p className="font-bold text-orange-600">₹{totalCredit.toLocaleString('en-IN')}</p></div>
                   <div className={`rounded-xl p-3 text-center ${bal>0?'bg-red-50':'bg-green-50'}`}>
-                    <p className="text-xs text-gray-500">{bal>0?'Balance Due':'Advance'}</p>
+                    <p className="text-xs text-gray-500">{bal>0?(isVendor?'Advance Paid':'Balance Due'):(isVendor?'Amount Payable':'Advance')}</p>
                     <p className={`font-bold text-lg ${bal>0?'text-red-500':'text-green-600'}`}>₹{Math.abs(bal).toLocaleString('en-IN')} {bal>0?'Dr':'Cr'}</p>
                   </div>
                 </div>
@@ -283,7 +304,7 @@ const PartyLedger: React.FC = () => {
                     </tr></thead>
                     <tbody>
                       {txnsWithBalance.map(t=>{
-                        const isDebit = t.type==='Sale';
+                        const isDebit = t.type==='Sale' || t.type==='Vendor Payment';
                         const style = txnStyle[t.type]||{bg:'#F3F4F6',color:'#6B7280'};
                         return (
                           <tr key={t.id} className="border-b border-gray-50 hover:bg-gray-50">
@@ -309,8 +330,8 @@ const PartyLedger: React.FC = () => {
                     <tfoot>
                       <tr className="border-t-2 border-gray-200 bg-violet-50">
                         <td colSpan={4} className="py-2.5 font-bold text-gray-700 px-2">Closing Balance</td>
-                        <td className="py-2.5 text-right font-bold text-blue-600">₹{partyTxns.filter(t=>t.type==='Sale').reduce((s,t)=>s+t.amount,0).toLocaleString('en-IN')}</td>
-                        <td className="py-2.5 text-right font-bold text-green-600">₹{partyTxns.filter(t=>t.type!=='Sale').reduce((s,t)=>s+t.amount,0).toLocaleString('en-IN')}</td>
+                        <td className="py-2.5 text-right font-bold text-blue-600">₹{partyTxns.filter(t=>t.type==='Sale'||t.type==='Vendor Payment').reduce((s,t)=>s+t.amount,0).toLocaleString('en-IN')}</td>
+                        <td className="py-2.5 text-right font-bold text-green-600">₹{partyTxns.filter(t=>t.type!=='Sale'&&t.type!=='Vendor Payment').reduce((s,t)=>s+t.amount,0).toLocaleString('en-IN')}</td>
                         <td className={`py-2.5 text-right font-bold text-lg ${getBalance(selectedParty.name)>0?'text-red-500':'text-green-600'}`}>
                           ₹{Math.abs(getBalance(selectedParty.name)).toLocaleString('en-IN')} {getBalance(selectedParty.name)>0?'Dr':'Cr'}
                         </td>
@@ -334,9 +355,18 @@ const PartyLedger: React.FC = () => {
               <button onClick={()=>{setShowPartyModal(false);setEditingParty(null);}} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center"><X size={14}/></button>
             </div>
             <div className="p-5 space-y-3">
-              {[{label:'Name *',key:'name',ph:'e.g. Rahul Sharma'},{label:'Phone',key:'phone',ph:'+91-9876540000'},{label:'Email',key:'email',ph:'party@email.com'},{label:'Address',key:'address',ph:'City, State'}].map(f=>(
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Party Type</label>
+              <div className="grid grid-cols-2 gap-2">
+                {['Customer','Vendor'].map(pt=>(
+                  <button key={pt} onClick={()=>setPartyForm({...partyForm,party_type:pt})}
+                    className={`py-2 rounded-lg text-sm font-medium transition-colors ${partyForm.party_type===pt?'bg-violet-600 text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                    {pt==='Customer'?'🧑 Customer (they owe you)':'🏪 Vendor (you owe them)'}
+                  </button>
+                ))}
+              </div></div>
+              {[{label:'Name *',key:'name',ph:'e.g. Rahul Sharma'},{label:'Phone',key:'phone',ph:'+91-9876540000'},{label:'Email',key:'email',ph:'party@email.com'},{label:'GSTIN',key:'gstin',ph:'03ABCDE1234F1Z5'},{label:'Address',key:'address',ph:'City, State'}].map(f=>(
                 <div key={f.key}><label className="block text-xs font-medium text-gray-700 mb-1">{f.label}</label>
-                <input value={(partyForm as any)[f.key]} onChange={e=>setPartyForm({...partyForm,[f.key]:e.target.value})} placeholder={f.ph} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"/></div>
+                <input value={(partyForm as any)[f.key]||''} onChange={e=>setPartyForm({...partyForm,[f.key]:e.target.value})} placeholder={f.ph} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"/></div>
               ))}
             </div>
             <div className="flex justify-end gap-2 p-5 border-t border-gray-100">
@@ -358,7 +388,7 @@ const PartyLedger: React.FC = () => {
             <div className="p-5 space-y-3">
               <div><label className="block text-xs font-medium text-gray-700 mb-1">Type</label>
               <div className="grid grid-cols-3 gap-1">
-                {txnTypes.map(t=>(
+                {(selectedParty?.party_type==='Vendor' ? vendorTxnTypes : customerTxnTypes).map(t=>(
                   <button key={t} onClick={()=>setTxnForm({...txnForm,type:t})}
                     className={`py-1.5 rounded-lg text-xs font-medium transition-colors ${txnForm.type===t?'text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                     style={txnForm.type===t?{background:txnStyle[t]?.color||'#7C3AED'}:{}}>
@@ -384,7 +414,10 @@ const PartyLedger: React.FC = () => {
                   <span className="font-bold text-violet-700">
                     {(() => {
                       const cur = getBalance(selectedParty.name);
-                      const newBal = txnForm.type==='Sale' ? cur+txnForm.amount : cur-txnForm.amount;
+                      const newBal = txnForm.type==='Sale' ? cur+txnForm.amount
+                        : txnForm.type==='Purchase Bill' ? cur-txnForm.amount
+                        : txnForm.type==='Vendor Payment' ? cur+txnForm.amount
+                        : cur-txnForm.amount;
                       return `₹${Math.abs(newBal).toLocaleString('en-IN')} ${newBal>0?'Dr (receivable)':'Cr (advance)'}`;
                     })()}
                   </span>
