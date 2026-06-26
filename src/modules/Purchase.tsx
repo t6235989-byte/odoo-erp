@@ -19,6 +19,15 @@ type BillItem = {
   total_price: number; add_to_inventory: boolean;
 };
 type Payment = { id?: string; bill_id: string; vendor_name: string; payment_date: string; amount: number; note: string; };
+type CreditNote = {
+  id?: string; bill_id?: string; credit_note_number: string; vendor_name: string;
+  vendor_gstin?: string; credit_note_date: string; reason?: string; total_amount: number;
+};
+type CreditNoteItem = {
+  id?: string; credit_note_id?: string; product_name: string; description?: string; hsn_code?: string;
+  quantity: number; unit: string; unit_price: number; discount_percent: number;
+  amount_before_tax: number; tax_percent: number; tax_amount: number; total_price: number;
+};
 
 const statusStyle: Record<string,string> = { Paid:'bg-green-100 text-green-700', Unpaid:'bg-red-100 text-red-700', Partial:'bg-orange-100 text-orange-700' };
 const UNITS = ['Pcs','Kg','Gram','Tonne','Metre','Cm','Feet','Inch','Litre','Ml','Box','Set','Pair','Sqft','Sqm','Bundle','Dozen','Roll','Coil','Drum','Tin','Can','Bag','Bottle','Tube','Sheet','Bar','Unit'];
@@ -27,12 +36,14 @@ const TAX_RATES = [0,5,12,18,28];
 const emptyBill: Bill = { bill_number:'', invoice_no:'', vendor_name:'', vendor_gstin:'', buyer_gstin:'', bill_date:new Date().toISOString().split('T')[0], due_date:'', transport:'', vehicle_no:'', place_of_supply:'', eway_bill:'', total_amount:0, paid_amount:0, status:'Unpaid', notes:'' };
 const emptyVendor: Vendor = { name:'', phone:'', email:'', address:'', gstin:'' };
 const emptyItem = (): BillItem => ({ product_name:'', description:'', hsn_code:'', quantity:1, unit:'Pcs', unit_price:0, discount_percent:0, amount_before_tax:0, tax_percent:18, tax_amount:0, total_price:0, add_to_inventory:true });
+const emptyCreditNote: CreditNote = { credit_note_number:'', vendor_name:'', vendor_gstin:'', credit_note_date:new Date().toISOString().split('T')[0], reason:'', total_amount:0 };
+const emptyCNItem = (): CreditNoteItem => ({ product_name:'', description:'', hsn_code:'', quantity:1, unit:'Pcs', unit_price:0, discount_percent:0, amount_before_tax:0, tax_percent:18, tax_amount:0, total_price:0 });
 
 // ── Calculate item totals (kept as exact decimals — NOT rounded per row) ──
 // Matches how a real GST invoice works: each line is exact, and only the
 // final Grand Total gets a single "Rounded Off" adjustment at the end.
 const round2 = (n: number) => Math.round(n * 100) / 100;
-const calcItem = (item: BillItem): BillItem => {
+const calcItem = <T extends { quantity: number; unit_price: number; discount_percent: number; tax_percent: number; amount_before_tax: number; tax_amount: number; total_price: number }>(item: T): T => {
   const base = item.quantity * item.unit_price;
   const discAmt = base * (item.discount_percent / 100);
   const afterDisc = base - discAmt;
@@ -63,11 +74,17 @@ const groupByTaxRate = (lineItems: BillItem[]): TaxRateGroup[] => {
 };
 
 const Purchase: React.FC = () => {
-  const [tab, setTab] = useState<'bills'|'vendors'|'compare'>('bills');
+  const [tab, setTab] = useState<'bills'|'vendors'|'compare'|'creditnotes'>('bills');
   const [bills, setBills] = useState<Bill[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [billItems, setBillItems] = useState<BillItem[]>([]);
+  const [creditNotes, setCreditNotes] = useState<CreditNote[]>([]);
+  const [creditNoteItems, setCreditNoteItems] = useState<CreditNoteItem[]>([]);
+  const [showCNModal, setShowCNModal] = useState(false);
+  const [cnForm, setCnForm] = useState<CreditNote>(emptyCreditNote);
+  const [cnItems, setCnItems] = useState<CreditNoteItem[]>([emptyCNItem()]);
+  const [editingCN, setEditingCN] = useState<CreditNote|null>(null);
   const [loading, setLoading] = useState(true);
   const [showBillModal, setShowBillModal] = useState(false);
   const [showVendorModal, setShowVendorModal] = useState(false);
@@ -144,13 +161,16 @@ const Purchase: React.FC = () => {
 
   const fetchData = async () => {
     setLoading(true);
-    const [{data:b},{data:v},{data:p},{data:bi}] = await Promise.all([
+    const [{data:b},{data:v},{data:p},{data:bi},{data:cn},{data:cni}] = await Promise.all([
       supabase.from('purchase_bills').select('*').order('created_at',{ascending:false}),
       supabase.from('vendors').select('*').order('name'),
       supabase.from('purchase_payments').select('*').order('payment_date',{ascending:false}),
       supabase.from('purchase_items').select('*').order('created_at',{ascending:false}),
+      supabase.from('purchase_credit_notes').select('*').order('created_at',{ascending:false}),
+      supabase.from('purchase_credit_note_items').select('*').order('created_at',{ascending:false}),
     ]);
     setBills(b||[]); setVendors(v||[]); setPayments(p||[]); setBillItems(bi||[]);
+    setCreditNotes(cn||[]); setCreditNoteItems(cni||[]);
     setLoading(false);
   };
   useEffect(()=>{ fetchData(); },[]);
@@ -236,6 +256,23 @@ const Purchase: React.FC = () => {
     setItems(updated);
   };
 
+  const updateCNItem = (i:number, field:string, val:any) => {
+    const updated = [...cnItems];
+    (updated[i] as any)[field] = val;
+    if (field === 'product_name') {
+      const hist = productHistory[String(val).trim().toLowerCase()];
+      if (hist) {
+        updated[i].hsn_code = hist.hsn_code;
+        updated[i].unit = hist.unit;
+        updated[i].unit_price = hist.unit_price;
+        updated[i].tax_percent = hist.tax_percent;
+        updated[i].discount_percent = hist.discount_percent;
+      }
+    }
+    updated[i] = calcItem(updated[i]);
+    setCnItems(updated);
+  };
+
   // Fuzzy vendor name match: matches if either name contains the other
   // (e.g. typing "Shiva Paints" should find "Shiva Paints & Hardware Store").
   // Requires at least 3 characters to avoid accidental short-string matches.
@@ -313,6 +350,27 @@ const Purchase: React.FC = () => {
       if (existing) await supabase.from('party_transactions').update(payload).eq('id',existing.id);
       else await supabase.from('party_transactions').insert([payload]);
     } catch (e) { console.error('Party Ledger sync (payment) failed:', e); }
+  };
+
+  const syncCreditNoteToLedger = async (cn: CreditNote) => {
+    try {
+      const partyId = await findOrCreateVendorParty(cn.vendor_name, cn.vendor_gstin);
+      if (!partyId) return;
+      const partyRow = (await supabase.from('parties').select('name').eq('id',partyId).single()).data;
+      const ref = `purchase-creditnote:${cn.id}`;
+      const payload = {
+        party_id: partyId, party_name: partyRow?.name || cn.vendor_name,
+        transaction_date: cn.credit_note_date, type: 'Vendor Credit Note', amount: cn.total_amount,
+        description: `CN ${cn.credit_note_number}${cn.reason?' — '+cn.reason:''}`, reference: ref,
+      };
+      const { data: existing } = await supabase.from('party_transactions').select('id').eq('reference',ref).maybeSingle();
+      if (existing) await supabase.from('party_transactions').update(payload).eq('id',existing.id);
+      else await supabase.from('party_transactions').insert([payload]);
+    } catch (e) { console.error('Party Ledger sync (credit note) failed:', e); }
+  };
+  const removeCreditNoteFromLedger = async (cnId: string) => {
+    try { await supabase.from('party_transactions').delete().eq('reference', `purchase-creditnote:${cnId}`); }
+    catch (e) { console.error('Party Ledger sync (delete credit note) failed:', e); }
   };
 
   const removeBillFromLedger = async (billId: string) => {
@@ -423,6 +481,63 @@ const Purchase: React.FC = () => {
     showToast(editingBill?'Bill updated!':'Bill created & inventory updated!','success');
     setShowBillModal(false); setEditingBill(null); setBillForm(emptyBill); setItems([emptyItem()]);
     fetchData(); setSaving(false);
+  };
+
+  // ── Credit Notes ──────────────────────────────────────────────────────
+  const saveCreditNote = async () => {
+    if(!cnForm.credit_note_number||!cnForm.vendor_name) { showToast('Credit note number and vendor required.','error'); return; }
+    const enteredRows = cnItems.filter(i => i.quantity || i.unit_price || i.hsn_code || i.product_name);
+    const validItems0 = cnItems.filter(i=>i.product_name?.trim());
+    if (enteredRows.length > 0 && validItems0.length === 0) {
+      showToast('⚠️ No item has a Product Name filled in — nothing was saved.','error');
+      return;
+    }
+    if (enteredRows.length > validItems0.length) {
+      const proceed = window.confirm(`${enteredRows.length - validItems0.length} item row(s) are missing a Product Name and will be DROPPED.\n\nContinue saving anyway?`);
+      if (!proceed) return;
+    }
+    setSaving(true);
+    const total = cnItems.filter(i=>i.product_name).reduce((s,i)=>s+i.total_price,0);
+    const payload = { ...cnForm, total_amount: Math.round(total) };
+    let cnId = editingCN?.id;
+    if (editingCN?.id) {
+      const { error: updateErr } = await supabase.from('purchase_credit_notes').update(payload).eq('id',editingCN.id);
+      if (updateErr) { showToast('Failed to update credit note: '+updateErr.message,'error'); setSaving(false); return; }
+      const { error: delErr } = await supabase.from('purchase_credit_note_items').delete().eq('credit_note_id',editingCN.id);
+      if (delErr) { showToast('Credit note saved, but failed to clear old items: '+delErr.message,'error'); setSaving(false); fetchData(); return; }
+      const validItems = cnItems.filter(i=>i.product_name);
+      if (validItems.length>0) {
+        const itemPayload = validItems.map(i=>{ const { id, ...rest } = i; return {...rest, credit_note_id:editingCN.id}; });
+        const { error: itemErr } = await supabase.from('purchase_credit_note_items').insert(itemPayload);
+        if (itemErr) { showToast('Credit note header saved, but items FAILED to save: '+itemErr.message,'error'); setSaving(false); fetchData(); return; }
+      }
+    } else {
+      const { data, error } = await supabase.from('purchase_credit_notes').insert([payload]).select().single();
+      if (error) { showToast('Failed: '+error.message,'error'); setSaving(false); return; }
+      cnId = data.id;
+      const validItems = cnItems.filter(i=>i.product_name);
+      if (cnId && validItems.length>0) {
+        const itemPayload = validItems.map(i=>({...i,credit_note_id:cnId}));
+        const { error: itemErr } = await supabase.from('purchase_credit_note_items').insert(itemPayload);
+        if (itemErr) {
+          showToast('⚠️ Credit note saved but ITEMS FAILED to save: '+itemErr.message+' — please Edit and re-enter items.','error');
+          setShowCNModal(false); setEditingCN(null); setCnForm(emptyCreditNote); setCnItems([emptyCNItem()]);
+          fetchData(); setSaving(false); return;
+        }
+      }
+    }
+    if (cnId) await syncCreditNoteToLedger({ ...payload, id: cnId } as CreditNote);
+    showToast(editingCN?'Credit note updated!':'Credit note created!','success');
+    setShowCNModal(false); setEditingCN(null); setCnForm(emptyCreditNote); setCnItems([emptyCNItem()]);
+    fetchData(); setSaving(false);
+  };
+
+  const deleteCreditNote = async (id:string) => {
+    setDeleting(id);
+    const { error } = await supabase.from('purchase_credit_notes').delete().eq('id',id);
+    if (error) { showToast('Failed to delete: '+error.message,'error'); setDeleting(null); return; }
+    await removeCreditNoteFromLedger(id);
+    showToast('Credit note deleted.','success'); fetchData(); setDeleting(null);
   };
 
   // ── Scan bill photo with AI ───────────────────────────────────────────
@@ -761,7 +876,7 @@ If a field is not visible on the invoice, use empty string "" for text fields or
       </div>
 
       <div className="flex gap-2 flex-wrap">
-        {([['bills','📋 Bills'],['vendors','🏪 Vendors'],['compare','📊 Price Compare']] as const).map(([id,label])=>(
+        {([['bills','📋 Bills'],['creditnotes','↩️ Credit Notes'],['vendors','🏪 Vendors'],['compare','📊 Price Compare']] as const).map(([id,label])=>(
           <button key={id} onClick={()=>setTab(id)} className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${tab===id?'bg-blue-600 text-white':'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}>{label}</button>
         ))}
       </div>
@@ -834,6 +949,7 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                 const bItems=billItems.filter(i=>i.bill_id===bill.id);
                 const due=bill.total_amount-bill.paid_amount;
                 const isOverdue=bill.status!=='Paid'&&bill.due_date&&new Date(bill.due_date)<new Date();
+                const linkedCNs = creditNotes.filter(cn=>cn.bill_id===bill.id);
                 return (
                   <div key={bill.id} className={`border rounded-xl overflow-hidden ${isOverdue?'border-red-200':'border-gray-100'}`}>
                     <div className={`p-4 ${isOverdue?'bg-red-50':'bg-white'}`}>
@@ -844,6 +960,7 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                             {bill.invoice_no&&<span className="text-xs text-gray-400">({bill.invoice_no})</span>}
                             <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusStyle[bill.status]}`}>{bill.status}</span>
                             {isOverdue&&<span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-600">⚠ Overdue</span>}
+                            {linkedCNs.length>0&&<span className="px-2 py-0.5 rounded-full text-xs font-medium bg-pink-100 text-pink-600">↩️ Credit Note: ₹{linkedCNs.reduce((s,c)=>s+c.total_amount,0).toLocaleString('en-IN')}</span>}
                           </div>
                           <p className="text-sm text-gray-600">🏪 {bill.vendor_name} {bill.vendor_gstin&&`· GST: ${bill.vendor_gstin}`} {getVendorPhone(bill.vendor_name)&&`· 📞 ${getVendorPhone(bill.vendor_name)}`}</p>
                           <p className="text-xs text-gray-400">📅 {formatDate(bill.bill_date)} {bill.due_date&&`· Due: ${formatDate(bill.due_date)}`} {bill.place_of_supply&&`· ${bill.place_of_supply}`}</p>
@@ -914,6 +1031,66 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                           </div>
                         )}
                         {bItems.length===0&&bPays.length===0&&<p className="text-xs text-gray-400 text-center">No items recorded. Click Edit to add items.</p>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* CREDIT NOTES */}
+      {tab==='creditnotes'&&(
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+            <h3 className="font-bold text-gray-800">Credit Notes <span className="text-pink-500">({creditNotes.length})</span></h3>
+            <button onClick={()=>{ setEditingCN(null); setCnForm(emptyCreditNote); setCnItems([emptyCNItem()]); setShowCNModal(true); }}
+              className="flex items-center gap-1 px-3 py-1.5 bg-pink-600 text-white rounded-lg text-sm hover:bg-pink-700"><Plus size={13}/> New Credit Note</button>
+          </div>
+          {creditNotes.length===0 ? (
+            <p className="text-sm text-gray-400 text-center py-10">No credit notes yet. Create one when a vendor returns goods or issues a credit against a bill.</p>
+          ) : (
+            <div className="space-y-3">
+              {creditNotes.map(cn=>{
+                const linkedBill = bills.find(b=>b.id===cn.bill_id);
+                const cnItemsForThis = creditNoteItems.filter(i=>i.credit_note_id===cn.id);
+                return (
+                  <div key={cn.id} className="border border-pink-100 rounded-xl p-4 bg-pink-50/30">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className="font-bold text-gray-800">↩️ {cn.credit_note_number}</span>
+                          {linkedBill && <span className="text-xs text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">against bill {linkedBill.bill_number}</span>}
+                        </div>
+                        <p className="text-sm text-gray-600">🏪 {cn.vendor_name} {cn.vendor_gstin&&`· GST: ${cn.vendor_gstin}`}</p>
+                        <p className="text-xs text-gray-400">📅 {formatDate(cn.credit_note_date)} {cn.reason&&`· ${cn.reason}`}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-pink-600">₹{cn.total_amount.toLocaleString('en-IN')}</p>
+                      </div>
+                      <div className="flex gap-1 items-center">
+                        <button onClick={()=>{ setEditingCN(cn); setCnForm({...cn}); const existing=cnItemsForThis; setCnItems(existing.length>0?existing.map(calcItem):[emptyCNItem()]); setShowCNModal(true); }} className="w-7 h-7 bg-blue-50 rounded-lg flex items-center justify-center text-blue-500"><Edit2 size={11}/></button>
+                        <button onClick={()=>deleteCreditNote(cn.id!)} disabled={deleting===cn.id} className="w-7 h-7 bg-red-50 rounded-lg flex items-center justify-center text-red-500 disabled:opacity-50"><Trash2 size={11}/></button>
+                      </div>
+                    </div>
+                    {cnItemsForThis.length>0 && (
+                      <div className="mt-3 pt-3 border-t border-pink-100">
+                        <p className="text-xs font-bold text-gray-500 mb-1">Returned Items:</p>
+                        <table className="w-full text-xs">
+                          <thead><tr className="text-gray-400"><th className="text-left">Product</th><th className="text-right">Qty</th><th className="text-right">Rate</th><th className="text-right">Total</th></tr></thead>
+                          <tbody>
+                            {cnItemsForThis.map((it,i)=>(
+                              <tr key={i} className="border-t border-pink-50">
+                                <td className="py-1">{it.product_name}{it.description&&<span className="text-gray-400 italic"> ({it.description})</span>}</td>
+                                <td className="text-right py-1">{it.quantity} {it.unit}</td>
+                                <td className="text-right py-1">₹{it.unit_price.toLocaleString('en-IN')}</td>
+                                <td className="text-right py-1 font-bold">₹{fmtMoney(it.total_price)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     )}
                   </div>
@@ -1192,6 +1369,93 @@ If a field is not visible on the invoice, use empty string "" for text fields or
             <div className="flex justify-end gap-2 p-5 border-t border-gray-100 sticky bottom-0 bg-white">
               <button onClick={()=>{setShowBillModal(false);setEditingBill(null);}} className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600">Cancel</button>
               <button onClick={saveBill} disabled={saving} className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-60">{saving&&<Loader size={13} className="animate-spin"/>}{saving?'Saving...':editingBill?'Update':'Create Bill'}</button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}</AnimatePresence>
+
+      {/* CREDIT NOTE MODAL */}
+      <AnimatePresence>{showCNModal&&(
+        <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onClick={e=>{if(e.target===e.currentTarget){setShowCNModal(false);setEditingCN(null);}}}>
+          <motion.div initial={{scale:0.9,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0.9,opacity:0}} className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100"><h2 className="font-bold text-gray-800">↩️ {editingCN?'Edit Credit Note':'New Credit Note'}</h2><button onClick={()=>{setShowCNModal(false);setEditingCN(null);}} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center"><X size={14}/></button></div>
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div><label className="block text-xs font-medium text-gray-700 mb-1">Against Bill (optional)</label>
+                <select value={cnForm.bill_id||''} onChange={e=>{
+                  const bill = bills.find(b=>b.id===e.target.value);
+                  setCnForm({...cnForm, bill_id:e.target.value||undefined, vendor_name:bill?.vendor_name||cnForm.vendor_name, vendor_gstin:bill?.vendor_gstin||cnForm.vendor_gstin});
+                }} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-200">
+                  <option value="">— Not linked to a specific bill —</option>
+                  {bills.map(b=><option key={b.id} value={b.id}>{b.bill_number} — {b.vendor_name} — ₹{b.total_amount.toLocaleString('en-IN')}</option>)}
+                </select></div>
+                <div><label className="block text-xs font-medium text-gray-700 mb-1">Credit Note No. *</label>
+                <input value={cnForm.credit_note_number} onChange={e=>setCnForm({...cnForm,credit_note_number:e.target.value})} placeholder="e.g. CN-001" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-200"/></div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div><label className="block text-xs font-medium text-gray-700 mb-1">Vendor Name *</label>
+                <input value={cnForm.vendor_name} onChange={e=>setCnForm({...cnForm,vendor_name:e.target.value})} list="vendor-list" placeholder="e.g. Thukral Machinery Store" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-200"/></div>
+                <div><label className="block text-xs font-medium text-gray-700 mb-1">Vendor GSTIN</label>
+                <input value={cnForm.vendor_gstin||''} onChange={e=>setCnForm({...cnForm,vendor_gstin:e.target.value})} placeholder="03AAAFT8517F1ZF" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none font-mono"/></div>
+                <div><label className="block text-xs font-medium text-gray-700 mb-1">Credit Note Date</label>
+                <input type="date" value={cnForm.credit_note_date} onChange={e=>setCnForm({...cnForm,credit_note_date:e.target.value})} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none"/></div>
+              </div>
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Reason</label>
+              <input value={cnForm.reason||''} onChange={e=>setCnForm({...cnForm,reason:e.target.value})} placeholder="e.g. Damaged goods returned" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none"/></div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-bold text-gray-500 uppercase">📦 Returned Items</p>
+                  <button onClick={()=>setCnItems([...cnItems,emptyCNItem()])} className="text-xs text-pink-500 hover:text-pink-700 flex items-center gap-1"><Plus size={11}/> Add Row</button>
+                </div>
+                <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead><tr className="bg-gray-50 text-gray-500">
+                    <th className="p-1.5 text-left font-medium">Product Name</th>
+                    <th className="p-1.5 text-left font-medium">HSN Code</th>
+                    <th className="p-1.5 font-medium">Qty</th>
+                    <th className="p-1.5 font-medium">Unit</th>
+                    <th className="p-1.5 font-medium">Rate (₹)</th>
+                    <th className="p-1.5 font-medium">Disc%</th>
+                    <th className="p-1.5 font-medium">Tax%</th>
+                    <th className="p-1.5 font-medium">Taxable</th>
+                    <th className="p-1.5 font-medium">Tax Amt</th>
+                    <th className="p-1.5 font-medium">Total</th>
+                    <th></th>
+                  </tr></thead>
+                  <tbody>
+                    {cnItems.map((item,i)=>(
+                      <tr key={i} className="border-b border-gray-100">
+                        <td className="p-1">
+                          <input value={item.product_name} onChange={e=>updateCNItem(i,'product_name',e.target.value)} list="product-name-list" placeholder="e.g. HR COIL 72083940" className={`w-36 border rounded px-2 py-1 text-xs focus:outline-none ${!item.product_name?.trim() && (item.quantity||item.unit_price||item.hsn_code) ? 'border-red-300 bg-red-50' : 'border-gray-200'}`}/>
+                          <input value={item.description||''} onChange={e=>updateCNItem(i,'description',e.target.value)} placeholder="spec e.g. 12G4'" className="w-36 border border-gray-100 rounded px-2 py-1 text-[11px] italic text-gray-500 focus:outline-none mt-1"/>
+                        </td>
+                        <td className="p-1"><input value={item.hsn_code||''} onChange={e=>updateCNItem(i,'hsn_code',e.target.value)} placeholder="84821020" className="w-20 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none font-mono"/></td>
+                        <td className="p-1"><input type="number" value={item.quantity||''} onChange={e=>updateCNItem(i,'quantity',Number(e.target.value))} className="w-14 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none text-center"/></td>
+                        <td className="p-1"><select value={item.unit} onChange={e=>updateCNItem(i,'unit',e.target.value)} className="w-16 border border-gray-200 rounded px-1 py-1 text-xs focus:outline-none">{UNITS.map(u=><option key={u}>{u}</option>)}</select></td>
+                        <td className="p-1"><input type="number" value={item.unit_price||''} onChange={e=>updateCNItem(i,'unit_price',Number(e.target.value))} className="w-20 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none text-right"/></td>
+                        <td className="p-1"><input type="number" value={item.discount_percent||''} onChange={e=>updateCNItem(i,'discount_percent',Number(e.target.value))} placeholder="0" className="w-12 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none text-center"/></td>
+                        <td className="p-1"><select value={item.tax_percent} onChange={e=>updateCNItem(i,'tax_percent',Number(e.target.value))} className="w-14 border border-gray-200 rounded px-1 py-1 text-xs focus:outline-none">{TAX_RATES.map(r=><option key={r}>{r}</option>)}</select></td>
+                        <td className="p-1 text-right font-mono text-blue-600">₹{fmtMoney(item.amount_before_tax)}</td>
+                        <td className="p-1 text-right font-mono text-orange-500">₹{fmtMoney(item.tax_amount)}</td>
+                        <td className="p-1 text-right font-bold text-pink-600">₹{fmtMoney(item.total_price)}</td>
+                        <td className="p-1"><button onClick={()=>setCnItems(cnItems.filter((_,idx)=>idx!==i))} className="text-gray-300 hover:text-red-500"><X size={13}/></button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <div className="bg-pink-50 rounded-xl p-3 text-xs space-y-1 min-w-48">
+                  <div className="flex justify-between"><span className="text-gray-500">Total Credit Amount:</span><span className="font-bold text-pink-600 text-base">₹{cnItems.filter(i=>i.product_name).reduce((s,i)=>s+i.total_price,0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 p-5 border-t border-gray-100 sticky bottom-0 bg-white">
+              <button onClick={()=>{setShowCNModal(false);setEditingCN(null);}} className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600">Cancel</button>
+              <button onClick={saveCreditNote} disabled={saving} className="flex items-center gap-2 px-5 py-2 bg-pink-600 text-white rounded-lg text-sm font-medium hover:bg-pink-700 disabled:opacity-60">{saving&&<Loader size={13} className="animate-spin"/>}{saving?'Saving...':editingCN?'Update':'Create Credit Note'}</button>
             </div>
           </motion.div>
         </motion.div>
