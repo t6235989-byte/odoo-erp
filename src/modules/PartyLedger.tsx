@@ -12,7 +12,7 @@ type Txn = { id?: string; party_id?: string; party_name: string; transaction_dat
 // Vendor-direction types: Purchase Bill increases what YOU owe THEM (Cr) —
 // the reverse of Sale. Vendor Payment reduces it (Dr), opposite of Payment.
 const customerTxnTypes = ['Sale','Payment','Return','Adjustment','Credit Note'];
-const vendorTxnTypes = ['Purchase Bill','Vendor Payment'];
+const vendorTxnTypes = ['Purchase Bill','Vendor Payment','Vendor Credit Note'];
 const txnTypes = [...customerTxnTypes, ...vendorTxnTypes];
 const txnStyle: Record<string,{bg:string;color:string;sign:string}> = {
   Sale:          { bg:'#DBEAFE', color:'#2563EB', sign:'+' },
@@ -20,8 +20,9 @@ const txnStyle: Record<string,{bg:string;color:string;sign:string}> = {
   Return:        { bg:'#FEE2E2', color:'#DC2626', sign:'-' },
   Adjustment:    { bg:'#FEF3C7', color:'#D97706', sign:'±' },
   'Credit Note': { bg:'#EDE9FE', color:'#7C3AED', sign:'-' },
-  'Purchase Bill':  { bg:'#FFEDD5', color:'#EA580C', sign:'+' },
-  'Vendor Payment': { bg:'#CFFAFE', color:'#0891B2', sign:'-' },
+  'Purchase Bill':      { bg:'#FFEDD5', color:'#EA580C', sign:'+' },
+  'Vendor Payment':     { bg:'#CFFAFE', color:'#0891B2', sign:'-' },
+  'Vendor Credit Note': { bg:'#FCE7F3', color:'#DB2777', sign:'-' },
 };
 
 const emptyParty: Party = { name:'', phone:'', email:'', address:'', party_type:'Customer' };
@@ -65,7 +66,7 @@ const PartyLedger: React.FC = () => {
       if(t.type==='Sale') return s + t.amount;
       if(t.type==='Payment'||t.type==='Return'||t.type==='Credit Note') return s - t.amount;
       if(t.type==='Purchase Bill') return s - t.amount;
-      if(t.type==='Vendor Payment') return s + t.amount;
+      if(t.type==='Vendor Payment'||t.type==='Vendor Credit Note') return s + t.amount;
       return s;
     }, 0);
   };
@@ -144,10 +145,10 @@ const PartyLedger: React.FC = () => {
       <thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Ref</th><th>Debit (Dr)</th><th>Credit (Cr)</th><th>Balance</th></tr></thead>
       <tbody>
         ${pTxns.map(t=>{
-          const isDebit = t.type==='Sale' || t.type==='Vendor Payment';
+          const isDebit = t.type==='Sale' || t.type==='Vendor Payment' || t.type==='Vendor Credit Note';
           if(t.type==='Sale') running+=t.amount;
           else if(t.type==='Purchase Bill') running-=t.amount;
-          else if(t.type==='Vendor Payment') running+=t.amount;
+          else if(t.type==='Vendor Payment'||t.type==='Vendor Credit Note') running+=t.amount;
           else running-=t.amount;
           return `<tr>
             <td>${formatDate(t.transaction_date)}</td>
@@ -181,7 +182,7 @@ const PartyLedger: React.FC = () => {
   const txnsWithBalance = partyTxns.map(t => {
     if(t.type==='Sale') runBal+=t.amount;
     else if(t.type==='Purchase Bill') runBal-=t.amount;
-    else if(t.type==='Vendor Payment') runBal+=t.amount;
+    else if(t.type==='Vendor Payment'||t.type==='Vendor Credit Note') runBal+=t.amount;
     else runBal-=t.amount; // Payment, Return, Adjustment, Credit Note
     return { ...t, runningBalance: runBal };
   });
@@ -269,7 +270,7 @@ const PartyLedger: React.FC = () => {
             {(() => {
               const bal = getBalance(selectedParty.name);
               const isVendor = selectedParty.party_type === 'Vendor';
-              const totalDebit = partyTxns.filter(t=> isVendor ? t.type==='Vendor Payment' : t.type==='Sale').reduce((s,t)=>s+t.amount,0);
+              const totalDebit = partyTxns.filter(t=> isVendor ? (t.type==='Vendor Payment'||t.type==='Vendor Credit Note') : t.type==='Sale').reduce((s,t)=>s+t.amount,0);
               const totalCredit = partyTxns.filter(t=> isVendor ? t.type==='Purchase Bill' : (t.type==='Payment'||t.type==='Credit Note'||t.type==='Return')).reduce((s,t)=>s+t.amount,0);
               return (
                 <div className="grid grid-cols-3 gap-3 mt-4">
@@ -304,7 +305,7 @@ const PartyLedger: React.FC = () => {
                     </tr></thead>
                     <tbody>
                       {txnsWithBalance.map(t=>{
-                        const isDebit = t.type==='Sale' || t.type==='Vendor Payment';
+                        const isDebit = t.type==='Sale' || t.type==='Vendor Payment' || t.type==='Vendor Credit Note';
                         const style = txnStyle[t.type]||{bg:'#F3F4F6',color:'#6B7280'};
                         return (
                           <tr key={t.id} className="border-b border-gray-50 hover:bg-gray-50">
@@ -330,8 +331,8 @@ const PartyLedger: React.FC = () => {
                     <tfoot>
                       <tr className="border-t-2 border-gray-200 bg-violet-50">
                         <td colSpan={4} className="py-2.5 font-bold text-gray-700 px-2">Closing Balance</td>
-                        <td className="py-2.5 text-right font-bold text-blue-600">₹{partyTxns.filter(t=>t.type==='Sale'||t.type==='Vendor Payment').reduce((s,t)=>s+t.amount,0).toLocaleString('en-IN')}</td>
-                        <td className="py-2.5 text-right font-bold text-green-600">₹{partyTxns.filter(t=>t.type!=='Sale'&&t.type!=='Vendor Payment').reduce((s,t)=>s+t.amount,0).toLocaleString('en-IN')}</td>
+                        <td className="py-2.5 text-right font-bold text-blue-600">₹{partyTxns.filter(t=>t.type==='Sale'||t.type==='Vendor Payment'||t.type==='Vendor Credit Note').reduce((s,t)=>s+t.amount,0).toLocaleString('en-IN')}</td>
+                        <td className="py-2.5 text-right font-bold text-green-600">₹{partyTxns.filter(t=>t.type!=='Sale'&&t.type!=='Vendor Payment'&&t.type!=='Vendor Credit Note').reduce((s,t)=>s+t.amount,0).toLocaleString('en-IN')}</td>
                         <td className={`py-2.5 text-right font-bold text-lg ${getBalance(selectedParty.name)>0?'text-red-500':'text-green-600'}`}>
                           ₹{Math.abs(getBalance(selectedParty.name)).toLocaleString('en-IN')} {getBalance(selectedParty.name)>0?'Dr':'Cr'}
                         </td>
@@ -416,7 +417,7 @@ const PartyLedger: React.FC = () => {
                       const cur = getBalance(selectedParty.name);
                       const newBal = txnForm.type==='Sale' ? cur+txnForm.amount
                         : txnForm.type==='Purchase Bill' ? cur-txnForm.amount
-                        : txnForm.type==='Vendor Payment' ? cur+txnForm.amount
+                        : (txnForm.type==='Vendor Payment'||txnForm.type==='Vendor Credit Note') ? cur+txnForm.amount
                         : cur-txnForm.amount;
                       return `₹${Math.abs(newBal).toLocaleString('en-IN')} ${newBal>0?'Dr (receivable)':'Cr (advance)'}`;
                     })()}
