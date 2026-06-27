@@ -7,16 +7,19 @@ import { supabase } from '../lib/supabase';
 
 type Product = {
   id?: string;
+  product_id?: string; // links to the real Inventory product (products table)
   name: string;
   price: number;
   sold: number;
-  stock: number;
+  stock: number; // kept for backward compatibility, but display uses live Inventory stock when linked
   rating: number;
   revenue: number;
   category: string;
   status: string;
   created_at?: string;
 };
+
+type InventoryProduct = { id: string; name: string; sku: string; stock: number; reorder_level: number; price: number; status: string; };
 
 type Order = {
   id?: string;
@@ -25,8 +28,11 @@ type Order = {
   amount: number;
   status: string;
   product: string;
+  product_id?: string; // links to products_online.id, which itself links to real Inventory
+  quantity?: number;
   order_date: string;
   created_at?: string;
+  stock_deducted?: boolean; // prevents double-deducting stock if the order is edited again
 };
 
 type WeeklySale = { day: string; orders: number; revenue: number; };
@@ -41,10 +47,17 @@ const orderStatusStyle: Record<string, string> = {
 const orderStatuses = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
 const categories = ['Electronics', 'Accessories', 'Clothing', 'Home', 'Sports', 'General'];
 const emptyProduct: Product = { name: '', price: 0, sold: 0, stock: 0, rating: 4.5, revenue: 0, category: 'Electronics', status: 'Active' };
-const emptyOrder: Order = { order_number: '', customer: '', amount: 0, status: 'Pending', product: '', order_date: new Date().toISOString().split('T')[0] };
+const emptyOrder: Order = { order_number: '', customer: '', amount: 0, status: 'Pending', product: '', quantity: 1, order_date: new Date().toISOString().split('T')[0] };
+// Matches Inventory module's exact status convention so stock state stays consistent everywhere
+const getInventoryStatus = (stock: number, reorder: number) => {
+  if (stock === 0) return 'Out of Stock';
+  if (stock <= reorder) return 'Low Stock';
+  return 'In Stock';
+};
 
 const Ecommerce: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
+  const [inventoryProducts, setInventoryProducts] = useState<InventoryProduct[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [weeklySales, setWeeklySales] = useState<WeeklySale[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,18 +79,30 @@ const Ecommerce: React.FC = () => {
 
   const fetchData = async () => {
     setLoading(true);
-    const [{ data: p }, { data: o }, { data: w }] = await Promise.all([
+    const [{ data: p }, { data: o }, { data: w }, { data: ip }] = await Promise.all([
       supabase.from('products_online').select('*').order('revenue', { ascending: false }),
       supabase.from('online_orders').select('*').order('created_at', { ascending: false }),
       supabase.from('weekly_sales').select('*').order('created_at', { ascending: true }),
+      supabase.from('products').select('id,name,sku,stock,reorder_level,price,status').order('name'),
     ]);
     setProducts(p || []);
     setOrders(o || []);
     setWeeklySales(w || []);
+    setInventoryProducts(ip || []);
     setLoading(false);
   };
 
   useEffect(() => { fetchData(); }, []);
+
+  // Live stock comes from the real Inventory product when linked; falls back
+  // to the eCommerce product's own stored stock only if never linked.
+  const getLiveStock = (p: Product): number => {
+    if (p.product_id) {
+      const inv = inventoryProducts.find(ip => ip.id === p.product_id);
+      if (inv) return inv.stock;
+    }
+    return p.stock;
+  };
 
   // ── Stats ──────────────────────────────────────────────────────────────
   const totalRevenue = products.reduce((s, p) => s + p.revenue, 0);
@@ -91,6 +116,7 @@ const Ecommerce: React.FC = () => {
 
   const handleSaveProduct = async () => {
     if (!productForm.name) { showToast('Product name is required.', 'error'); return; }
+    if (!productForm.product_id) { showToast('Please link this listing to a real Inventory product.', 'error'); return; }
     setSaving(true);
     if (editingProduct?.id) {
       const { error } = await supabase.from('products_online').update({ ...productForm }).eq('id', editingProduct.id);
@@ -120,13 +146,37 @@ const Ecommerce: React.FC = () => {
     if (!orderForm.order_number || !orderForm.customer) { showToast('Order # and Customer are required.', 'error'); return; }
     setSaving(true);
     if (editingOrder?.id) {
+      // Editing an existing order never re-deducts stock — that already happened when it was first created.
       const { error } = await supabase.from('online_orders').update({ ...orderForm }).eq('id', editingOrder.id);
-      if (error) showToast('Update failed: ' + error.message, 'error');
-      else { showToast('Order updated!', 'success'); setShowModal(false); fetchData(); }
+      if (error) { showToast('Update failed: ' + error.message, 'error'); setSaving(false); return; }
+      showToast('Order updated!', 'success'); setShowModal(false); fetchData();
     } else {
-      const { error } = await supabase.from('online_orders').insert([orderForm]);
-      if (error) showToast('Failed: ' + error.message, 'error');
-      else { showToast('Order added!', 'success'); setShowModal(false); fetchData(); }
+      // New order: deduct stock from the linked Inventory product first, so we
+      // never record a sale that couldn't actually be fulfilled from stock.
+      let invProduct: InventoryProduct | undefined;
+      if (orderForm.product_id) {
+        const ecomProduct = products.find(p => p.id === orderForm.product_id);
+        if (ecomProduct?.product_id) invProduct = inventoryProducts.find(ip => ip.id === ecomProduct.product_id);
+      }
+      const qty = orderForm.quantity || 1;
+      if (invProduct) {
+        if (invProduct.stock < qty) {
+          const proceed = window.confirm(`⚠️ Only ${invProduct.stock} in stock, but this order needs ${qty}.\n\nSave anyway? Stock will go negative.`);
+          if (!proceed) { setSaving(false); return; }
+        }
+        const newStock = invProduct.stock - qty;
+        const newStatus = getInventoryStatus(Math.max(0, newStock), invProduct.reorder_level);
+        const { error: stockErr } = await supabase.from('products').update({ stock: newStock, status: newStatus }).eq('id', invProduct.id);
+        if (stockErr) { showToast('Failed to update Inventory stock: ' + stockErr.message, 'error'); setSaving(false); return; }
+        await supabase.from('stock_movements').insert([{
+          product_id: invProduct.id, product_name: invProduct.name,
+          type: 'Issue', quantity: qty, note: `eCommerce order ${orderForm.order_number}`,
+        }]);
+      }
+      const { error } = await supabase.from('online_orders').insert([{ ...orderForm, stock_deducted: !!invProduct }]);
+      if (error) { showToast('Failed: ' + error.message, 'error'); setSaving(false); return; }
+      showToast(invProduct ? `Order added & ${qty} unit(s) deducted from Inventory!` : 'Order added!', 'success');
+      setShowModal(false); fetchData();
     }
     setSaving(false);
   };
@@ -229,7 +279,7 @@ const Ecommerce: React.FC = () => {
                       <td className="py-2.5 font-medium text-gray-800">{p.name}</td>
                       <td className="py-2.5 text-gray-600">${p.price}</td>
                       <td className="py-2.5 font-semibold text-gray-700">{p.sold.toLocaleString()}</td>
-                      <td className="py-2.5"><span className={p.stock < 100 ? 'text-orange-500 font-bold' : 'text-gray-600'}>{p.stock}</span></td>
+                      <td className="py-2.5"><span className={getLiveStock(p) < 100 ? 'text-orange-500 font-bold' : 'text-gray-600'}>{getLiveStock(p)}{p.product_id && <span className="text-[10px] text-gray-400 ml-1">(live)</span>}</span></td>
                       <td className="py-2.5">
                         <div className="flex items-center gap-1">
                           <Star size={11} className="text-yellow-400 fill-yellow-400" />
@@ -311,10 +361,34 @@ const Ecommerce: React.FC = () => {
               <div className="p-6 space-y-4">
                 {modalType === 'product' ? (
                   <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Inventory Product *</label>
+                      <select
+                        value={productForm.product_id || ''}
+                        onChange={e => {
+                          const inv = inventoryProducts.find(ip => ip.id === e.target.value);
+                          setProductForm({
+                            ...productForm,
+                            product_id: e.target.value || undefined,
+                            name: inv?.name || productForm.name,
+                            price: inv?.price ?? productForm.price,
+                            stock: inv?.stock ?? productForm.stock,
+                          });
+                        }}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200">
+                        <option value="">— Select a product from Inventory —</option>
+                        {inventoryProducts.map(ip => <option key={ip.id} value={ip.id}>{ip.name} (SKU: {ip.sku}) — Stock: {ip.stock}</option>)}
+                      </select>
+                      <p className="text-xs text-gray-400 mt-1">Stock for this listing is the same as Inventory's live stock — manage quantity from the Inventory module.</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Storefront Name</label>
+                      <input type="text" placeholder="e.g. Bluetooth Speaker" value={productForm.name}
+                        onChange={e => setProductForm({ ...productForm, name: e.target.value })}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200" />
+                    </div>
                     {[
-                      { label: 'Product Name *', key: 'name', type: 'text', placeholder: 'e.g. Bluetooth Speaker' },
                       { label: 'Price ($)', key: 'price', type: 'number', placeholder: '99' },
-                      { label: 'Stock', key: 'stock', type: 'number', placeholder: '100' },
                       { label: 'Units Sold', key: 'sold', type: 'number', placeholder: '0' },
                       { label: 'Rating', key: 'rating', type: 'number', placeholder: '4.5' },
                       { label: 'Revenue ($)', key: 'revenue', type: 'number', placeholder: '0' },
@@ -326,6 +400,11 @@ const Ecommerce: React.FC = () => {
                           className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200" />
                       </div>
                     ))}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Stock (live from Inventory)</label>
+                      <input type="number" disabled value={productForm.product_id ? (inventoryProducts.find(ip=>ip.id===productForm.product_id)?.stock ?? productForm.stock) : productForm.stock}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500" />
+                    </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
                       <select value={productForm.category} onChange={e => setProductForm({ ...productForm, category: e.target.value })}
@@ -339,9 +418,6 @@ const Ecommerce: React.FC = () => {
                     {[
                       { label: 'Order Number *', key: 'order_number', type: 'text', placeholder: 'ORD-006' },
                       { label: 'Customer *', key: 'customer', type: 'text', placeholder: 'e.g. John Doe' },
-                      { label: 'Product', key: 'product', type: 'text', placeholder: 'e.g. Wireless Headphones' },
-                      { label: 'Amount ($)', key: 'amount', type: 'number', placeholder: '149' },
-                      { label: 'Order Date', key: 'order_date', type: 'date', placeholder: '' },
                     ].map(f => (
                       <div key={f.key}>
                         <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
@@ -350,6 +426,46 @@ const Ecommerce: React.FC = () => {
                           className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200" />
                       </div>
                     ))}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Product</label>
+                      <select disabled={!!editingOrder} value={orderForm.product_id || ''} onChange={e => {
+                        const prod = products.find(p => p.id === e.target.value);
+                        setOrderForm({ ...orderForm, product_id: e.target.value || undefined, product: prod?.name || orderForm.product, amount: prod ? prod.price * (orderForm.quantity||1) : orderForm.amount });
+                      }} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200 disabled:bg-gray-50 disabled:text-gray-400">
+                        <option value="">— Type product name manually below —</option>
+                        {products.map(p => <option key={p.id} value={p.id}>{p.name} — Stock: {getLiveStock(p)}</option>)}
+                      </select>
+                      {!orderForm.product_id && (
+                        <input type="text" placeholder="e.g. Wireless Headphones" value={orderForm.product}
+                          onChange={e => setOrderForm({ ...orderForm, product: e.target.value })}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none mt-2" />
+                      )}
+                      {editingOrder && <p className="text-xs text-gray-400 mt-1">Product/quantity can't be changed after creation, since stock was already deducted.</p>}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
+                        <input type="number" disabled={!!editingOrder} min={1} value={orderForm.quantity||1}
+                          onChange={e => {
+                            const qty = Math.max(1, Number(e.target.value));
+                            const prod = products.find(p => p.id === orderForm.product_id);
+                            setOrderForm({ ...orderForm, quantity: qty, amount: prod ? prod.price * qty : orderForm.amount });
+                          }}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200 disabled:bg-gray-50 disabled:text-gray-400" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Amount ($)</label>
+                        <input type="number" placeholder="149" value={orderForm.amount}
+                          onChange={e => setOrderForm({ ...orderForm, amount: Number(e.target.value) })}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Order Date</label>
+                      <input type="date" value={orderForm.order_date}
+                        onChange={e => setOrderForm({ ...orderForm, order_date: e.target.value })}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200" />
+                    </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                       <select value={orderForm.status} onChange={e => setOrderForm({ ...orderForm, status: e.target.value })}
