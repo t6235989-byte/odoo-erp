@@ -177,8 +177,15 @@ const Purchase: React.FC = () => {
 
   const totalBills = filteredBills.reduce((s,b)=>s+b.total_amount,0);
   const totalPaid = filteredBills.reduce((s,b)=>s+b.paid_amount,0);
-  const totalDue = totalBills - totalPaid;
-  const overdueBills = filteredBills.filter(b=>b.status!=='Paid'&&b.due_date&&new Date(b.due_date)<new Date()).length;
+  // Credit notes reduce what's actually owed, just like payments do — but they
+  // don't touch bill.paid_amount, so they must be subtracted separately here.
+  const creditNoteTotalFor = (billId?: string) => billId ? creditNotes.filter(cn=>cn.bill_id===billId).reduce((s,cn)=>s+cn.total_amount,0) : 0;
+  const totalCreditNotes = filteredBills.reduce((s,b)=>s+creditNoteTotalFor(b.id),0);
+  const totalDue = totalBills - totalPaid - totalCreditNotes;
+  const overdueBills = filteredBills.filter(b=>{
+    const dueAmt = b.total_amount - b.paid_amount - creditNoteTotalFor(b.id);
+    return dueAmt > 0 && b.due_date && new Date(b.due_date) < new Date();
+  }).length;
 
   // ── Keyboard navigation for the items table ─────────────────────────────
   // Lets the user press Enter to jump field-to-field (Name→HSN→Qty→Unit→
@@ -947,9 +954,10 @@ If a field is not visible on the invoice, use empty string "" for text fields or
               {filteredBills.map(bill=>{
                 const bPays=payments.filter(p=>p.bill_id===bill.id);
                 const bItems=billItems.filter(i=>i.bill_id===bill.id);
-                const due=bill.total_amount-bill.paid_amount;
-                const isOverdue=bill.status!=='Paid'&&bill.due_date&&new Date(bill.due_date)<new Date();
                 const linkedCNs = creditNotes.filter(cn=>cn.bill_id===bill.id);
+                const cnTotal = linkedCNs.reduce((s,cn)=>s+cn.total_amount,0);
+                const due=bill.total_amount-bill.paid_amount-cnTotal;
+                const isOverdue=due>0&&bill.due_date&&new Date(bill.due_date)<new Date();
                 return (
                   <div key={bill.id} className={`border rounded-xl overflow-hidden ${isOverdue?'border-red-200':'border-gray-100'}`}>
                     <div className={`p-4 ${isOverdue?'bg-red-50':'bg-white'}`}>
