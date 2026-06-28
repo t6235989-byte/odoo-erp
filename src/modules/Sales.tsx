@@ -25,7 +25,26 @@ type SalesOrder = {
   status: string;
   order_date: string;
   created_at?: string;
+  stock_deducted?: boolean;
 };
+
+type SalesOrderItem = {
+  id?: string;
+  sales_order_id?: string;
+  product_id?: string;
+  product_name: string;
+  description?: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  discount_percent: number;
+  amount_before_tax: number;
+  tax_percent: number;
+  tax_amount: number;
+  total_price: number;
+};
+
+type InventoryProduct = { id: string; name: string; sku: string; stock: number; reorder_level: number; price: number; status: string; };
 
 const stageColor: Record<string, string> = {
   Lead: 'bg-blue-100 text-blue-700',
@@ -56,11 +75,31 @@ const salesTrend = [
 
 const emptyLead: Lead = { name: '', company: '', email: '', phone: '', deal_value: 0, stage: 'Lead', rating: 3 };
 const emptyOrder: SalesOrder = { order_number: '', customer: '', amount: 0, status: 'Draft', order_date: new Date().toISOString().split('T')[0] };
+const UNITS = ['Pcs','Kg','Gram','Tonne','Metre','Cm','Feet','Inch','Litre','Ml','Box','Set','Pair','Sqft','Sqm','Bundle','Dozen','Roll','Coil','Drum','Tin','Can','Bag','Bottle','Tube','Sheet','Bar','Unit'];
+const TAX_RATES = [0, 5, 12, 18, 28];
+const emptyOrderItem = (): SalesOrderItem => ({ product_name:'', description:'', quantity:1, unit:'Pcs', unit_price:0, discount_percent:0, amount_before_tax:0, tax_percent:18, tax_amount:0, total_price:0 });
+const round2 = (n: number) => Math.round(n * 100) / 100;
+const calcItem = (item: SalesOrderItem): SalesOrderItem => {
+  const base = item.quantity * item.unit_price;
+  const discAmt = base * (item.discount_percent / 100);
+  const afterDisc = base - discAmt;
+  const taxAmt = afterDisc * (item.tax_percent / 100);
+  return { ...item, amount_before_tax: round2(afterDisc), tax_amount: round2(taxAmt), total_price: round2(afterDisc + taxAmt) };
+};
+// Matches Inventory module's exact status convention so stock state stays consistent
+const getInventoryStatus = (stock: number, reorder: number) => {
+  if (stock === 0) return 'Out of Stock';
+  if (stock <= reorder) return 'Low Stock';
+  return 'In Stock';
+};
 
 const Sales: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'crm' | 'orders'>('crm');
   const [leads, setLeads] = useState<Lead[]>([]);
   const [orders, setOrders] = useState<SalesOrder[]>([]);
+  const [orderItems, setOrderItems] = useState<SalesOrderItem[]>([]);
+  const [inventoryProducts, setInventoryProducts] = useState<InventoryProduct[]>([]);
+  const [items, setItems] = useState<SalesOrderItem[]>([emptyOrderItem()]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [leadForm, setLeadForm] = useState<Lead>(emptyLead);
@@ -79,12 +118,16 @@ const Sales: React.FC = () => {
 
   const fetchData = async () => {
     setLoading(true);
-    const [{ data: l }, { data: o }] = await Promise.all([
+    const [{ data: l }, { data: o }, { data: oi }, { data: ip }] = await Promise.all([
       supabase.from('leads').select('*').order('created_at', { ascending: false }),
       supabase.from('sales_orders').select('*').order('created_at', { ascending: false }),
+      supabase.from('sales_order_items').select('*').order('created_at', { ascending: false }),
+      supabase.from('products').select('id,name,sku,stock,reorder_level,price,status').order('name'),
     ]);
     setLeads(l || []);
     setOrders(o || []);
+    setOrderItems(oi || []);
+    setInventoryProducts(ip || []);
     setLoading(false);
   };
 
@@ -107,12 +150,28 @@ const Sales: React.FC = () => {
   // ── CRUD ───────────────────────────────────────────────────────────────
   const openAdd = () => {
     if (activeTab === 'crm') { setEditingLead(null); setLeadForm(emptyLead); }
-    else { setEditingOrder(null); setOrderForm(emptyOrder); }
+    else { setEditingOrder(null); setOrderForm(emptyOrder); setItems([emptyOrderItem()]); }
     setShowModal(true);
   };
   const openEditLead = (l: Lead) => { setEditingLead(l); setLeadForm({ ...l }); setShowModal(true); setShowActions(null); };
-  const openEditOrder = (o: SalesOrder) => { setEditingOrder(o); setOrderForm({ ...o }); setShowModal(true); setShowActions(null); };
+  const openEditOrder = (o: SalesOrder) => {
+    setEditingOrder(o); setOrderForm({ ...o });
+    const existing = orderItems.filter(i => i.sales_order_id === o.id);
+    setItems(existing.length > 0 ? existing.map(calcItem) : [emptyOrderItem()]);
+    setShowModal(true); setShowActions(null);
+  };
   const closeModal = () => { setShowModal(false); setEditingLead(null); setEditingOrder(null); };
+
+  const updateItem = (i: number, field: string, val: any) => {
+    const updated = [...items];
+    (updated[i] as any)[field] = val;
+    if (field === 'product_id') {
+      const inv = inventoryProducts.find(ip => ip.id === val);
+      if (inv) { updated[i].product_name = inv.name; updated[i].unit_price = inv.price; }
+    }
+    updated[i] = calcItem(updated[i]);
+    setItems(updated);
+  };
 
   const handleSaveLead = async () => {
     if (!leadForm.name || !leadForm.company) { showToast('Name and Company are required.', 'error'); return; }
@@ -131,15 +190,64 @@ const Sales: React.FC = () => {
 
   const handleSaveOrder = async () => {
     if (!orderForm.order_number || !orderForm.customer) { showToast('Order # and Customer are required.', 'error'); return; }
+    const enteredRows = items.filter(i => i.quantity || i.unit_price || i.product_name);
+    const validItems = items.filter(i => i.product_name?.trim());
+    if (enteredRows.length > 0 && validItems.length === 0) {
+      showToast('⚠️ No item has a Product Name filled in — nothing was saved.', 'error');
+      return;
+    }
+    if (enteredRows.length > validItems.length) {
+      const proceed = window.confirm(`${enteredRows.length - validItems.length} item row(s) are missing a Product Name and will be DROPPED.\n\nContinue saving anyway?`);
+      if (!proceed) return;
+    }
     setSaving(true);
+    const total = validItems.reduce((s, i) => s + i.total_price, 0);
+    const payload = { ...orderForm, amount: Math.round(total) || orderForm.amount };
+
     if (editingOrder?.id) {
-      const { error } = await supabase.from('sales_orders').update({ ...orderForm }).eq('id', editingOrder.id);
-      if (error) showToast('Update failed: ' + error.message, 'error');
-      else { showToast('Order updated!', 'success'); closeModal(); fetchData(); }
+      // Editing never re-deducts/re-adjusts stock — items/qty are locked once stock has been deducted.
+      const { error } = await supabase.from('sales_orders').update(payload).eq('id', editingOrder.id);
+      if (error) { showToast('Update failed: ' + error.message, 'error'); setSaving(false); return; }
+      showToast('Order updated!', 'success'); closeModal(); fetchData();
     } else {
-      const { error } = await supabase.from('sales_orders').insert([orderForm]);
-      if (error) showToast('Failed: ' + error.message, 'error');
-      else { showToast('Order added!', 'success'); closeModal(); fetchData(); }
+      // Check stock availability for every line item before committing anything.
+      const stockIssues: string[] = [];
+      for (const item of validItems) {
+        if (!item.product_id) continue;
+        const inv = inventoryProducts.find(ip => ip.id === item.product_id);
+        if (inv && inv.stock < item.quantity) stockIssues.push(`${inv.name}: only ${inv.stock} in stock, need ${item.quantity}`);
+      }
+      if (stockIssues.length > 0) {
+        const proceed = window.confirm(`⚠️ Not enough stock for:\n\n${stockIssues.join('\n')}\n\nSave anyway? Stock will go negative.`);
+        if (!proceed) { setSaving(false); return; }
+      }
+
+      const { data, error } = await supabase.from('sales_orders').insert([{ ...payload, stock_deducted: validItems.some(i=>i.product_id) }]).select().single();
+      if (error) { showToast('Failed: ' + error.message, 'error'); setSaving(false); return; }
+      const orderId = data.id;
+
+      if (validItems.length > 0) {
+        const itemPayload = validItems.map(i => { const { id, ...rest } = i; return { ...rest, sales_order_id: orderId }; });
+        const { error: itemErr } = await supabase.from('sales_order_items').insert(itemPayload);
+        if (itemErr) {
+          showToast('⚠️ Order saved but ITEMS FAILED to save: ' + itemErr.message, 'error');
+          closeModal(); fetchData(); setSaving(false); return;
+        }
+        // Deduct stock for each linked product, logging the same way Inventory does.
+        for (const item of validItems.filter(i => i.product_id)) {
+          const inv = inventoryProducts.find(ip => ip.id === item.product_id);
+          if (!inv) continue;
+          const newStock = inv.stock - item.quantity;
+          const newStatus = getInventoryStatus(Math.max(0, newStock), inv.reorder_level);
+          await supabase.from('products').update({ stock: newStock, status: newStatus }).eq('id', inv.id);
+          await supabase.from('stock_movements').insert([{
+            product_id: inv.id, product_name: inv.name,
+            type: 'Issue', quantity: item.quantity, note: `Sales order ${orderForm.order_number}`,
+          }]);
+        }
+      }
+      showToast('Order added & Inventory stock updated!', 'success');
+      closeModal(); fetchData();
     }
     setSaving(false);
   };
@@ -153,6 +261,11 @@ const Sales: React.FC = () => {
   };
 
   const handleDeleteOrder = async (id: string) => {
+    const order = orders.find(o => o.id === id);
+    if (order?.stock_deducted) {
+      const proceed = window.confirm('This order already deducted Inventory stock. Deleting it will NOT automatically restore that stock.\n\nDelete anyway?');
+      if (!proceed) return;
+    }
     setDeleting(id);
     const { error } = await supabase.from('sales_orders').delete().eq('id', id);
     if (error) showToast('Delete failed: ' + error.message, 'error');
@@ -363,7 +476,7 @@ const Sales: React.FC = () => {
             className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4"
             onClick={e => { if (e.target === e.currentTarget) closeModal(); }}>
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+              className={`bg-white rounded-2xl shadow-2xl w-full max-h-[90vh] overflow-y-auto ${activeTab==='orders' ? 'max-w-3xl' : 'max-w-md'}`}>
               <div className="flex items-center justify-between p-6 border-b border-gray-100">
                 <h2 className="text-lg font-bold text-gray-800">
                   {activeTab === 'crm' ? (editingLead ? 'Edit Lead' : 'New Lead') : (editingOrder ? 'Edit Order' : 'New Order')}
@@ -405,25 +518,71 @@ const Sales: React.FC = () => {
                   </>
                 ) : (
                   <>
-                    {[
-                      { label: 'Order Number *', key: 'order_number', type: 'text', placeholder: 'SO-2024-006' },
-                      { label: 'Customer *', key: 'customer', type: 'text', placeholder: 'e.g. Acme Corp' },
-                      { label: 'Amount ($)', key: 'amount', type: 'number', placeholder: '50000' },
-                      { label: 'Order Date', key: 'order_date', type: 'date', placeholder: '' },
-                    ].map(f => (
-                      <div key={f.key}>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
-                        <input type={f.type} placeholder={f.placeholder} value={(orderForm as any)[f.key]}
-                          onChange={e => setOrderForm({ ...orderForm, [f.key]: f.type === 'number' ? Number(e.target.value) : e.target.value })}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200" />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {[
+                        { label: 'Order Number *', key: 'order_number', type: 'text', placeholder: 'SO-2024-006' },
+                        { label: 'Customer *', key: 'customer', type: 'text', placeholder: 'e.g. Acme Corp' },
+                        { label: 'Order Date', key: 'order_date', type: 'date', placeholder: '' },
+                      ].map(f => (
+                        <div key={f.key}>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
+                          <input type={f.type} placeholder={f.placeholder} value={(orderForm as any)[f.key]}
+                            onChange={e => setOrderForm({ ...orderForm, [f.key]: e.target.value })}
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200" />
+                        </div>
+                      ))}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                        <select value={orderForm.status} onChange={e => setOrderForm({ ...orderForm, status: e.target.value })}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
+                          {orderStatuses.map(s => <option key={s}>{s}</option>)}
+                        </select>
                       </div>
-                    ))}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                      <select value={orderForm.status} onChange={e => setOrderForm({ ...orderForm, status: e.target.value })}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
-                        {orderStatuses.map(s => <option key={s}>{s}</option>)}
-                      </select>
+                    </div>
+
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-bold text-gray-500 uppercase">📦 Items</p>
+                        {!editingOrder && <button onClick={() => setItems([...items, emptyOrderItem()])} className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1"><Plus size={11}/> Add Row</button>}
+                      </div>
+                      {editingOrder && <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5 mb-2">⚠️ Items/quantity can't be changed after creation — Inventory stock was already deducted.</p>}
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead><tr className="bg-gray-50 text-gray-500">
+                            <th className="p-1.5 text-left font-medium">Product</th>
+                            <th className="p-1.5 font-medium">Qty</th>
+                            <th className="p-1.5 font-medium">Unit</th>
+                            <th className="p-1.5 font-medium">Rate ($)</th>
+                            <th className="p-1.5 font-medium">Disc%</th>
+                            <th className="p-1.5 font-medium">Tax%</th>
+                            <th className="p-1.5 font-medium">Total</th>
+                            {!editingOrder && <th></th>}
+                          </tr></thead>
+                          <tbody>
+                            {items.map((item, i) => (
+                              <tr key={i} className="border-b border-gray-100">
+                                <td className="p-1">
+                                  <select disabled={!!editingOrder} value={item.product_id || ''} onChange={e => updateItem(i, 'product_id', e.target.value)}
+                                    className={`w-40 border rounded px-2 py-1 text-xs focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 ${!item.product_name?.trim() && (item.quantity||item.unit_price) ? 'border-red-300 bg-red-50' : 'border-gray-200'}`}>
+                                    <option value="">— Pick product —</option>
+                                    {inventoryProducts.map(ip => <option key={ip.id} value={ip.id}>{ip.name} (Stock: {ip.stock})</option>)}
+                                  </select>
+                                </td>
+                                <td className="p-1"><input disabled={!!editingOrder} type="number" value={item.quantity || ''} onChange={e => updateItem(i, 'quantity', Number(e.target.value))} className="w-14 border border-gray-200 rounded px-2 py-1 text-xs text-center focus:outline-none disabled:bg-gray-50"/></td>
+                                <td className="p-1"><select disabled={!!editingOrder} value={item.unit} onChange={e => updateItem(i, 'unit', e.target.value)} className="w-16 border border-gray-200 rounded px-1 py-1 text-xs focus:outline-none disabled:bg-gray-50">{UNITS.map(u=><option key={u}>{u}</option>)}</select></td>
+                                <td className="p-1"><input disabled={!!editingOrder} type="number" value={item.unit_price || ''} onChange={e => updateItem(i, 'unit_price', Number(e.target.value))} className="w-20 border border-gray-200 rounded px-2 py-1 text-xs text-right focus:outline-none disabled:bg-gray-50"/></td>
+                                <td className="p-1"><input disabled={!!editingOrder} type="number" value={item.discount_percent || ''} onChange={e => updateItem(i, 'discount_percent', Number(e.target.value))} placeholder="0" className="w-12 border border-gray-200 rounded px-2 py-1 text-xs text-center focus:outline-none disabled:bg-gray-50"/></td>
+                                <td className="p-1"><select disabled={!!editingOrder} value={item.tax_percent} onChange={e => updateItem(i, 'tax_percent', Number(e.target.value))} className="w-14 border border-gray-200 rounded px-1 py-1 text-xs focus:outline-none disabled:bg-gray-50">{TAX_RATES.map(r=><option key={r}>{r}</option>)}</select></td>
+                                <td className="p-1 text-right font-bold text-blue-600">${item.total_price.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                                {!editingOrder && <td className="p-1"><button onClick={()=>setItems(items.filter((_,idx)=>idx!==i))} className="text-gray-300 hover:text-red-500"><X size={13}/></button></td>}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="flex justify-end mt-2">
+                        <p className="text-sm font-bold text-gray-700">Order Total: <span className="text-blue-600">${items.filter(i=>i.product_name).reduce((s,i)=>s+i.total_price,0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></p>
+                      </div>
                     </div>
                   </>
                 )}
