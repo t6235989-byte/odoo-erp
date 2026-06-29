@@ -15,7 +15,19 @@ type Job = {
   eta: string;
   description: string;
   created_at?: string;
+  stock_applied?: boolean;
 };
+
+type Part = {
+  id?: string;
+  job_id?: string;
+  product_id?: string;
+  product_name: string;
+  quantity: number;
+  unit: string;
+};
+
+type InventoryProduct = { id: string; name: string; sku: string; stock: number; reorder_level: number; price: number; status: string; };
 
 type Technician = {
   id?: string;
@@ -42,10 +54,21 @@ const statusStyle: Record<string, string> = {
 };
 
 const emptyJob: Job = { title: '', customer: '', technician: '', location: '', priority: 'Normal', status: 'Scheduled', eta: '', description: '' };
+const UNITS = ['Pcs','Kg','Gram','Tonne','Metre','Cm','Feet','Inch','Litre','Ml','Box','Set','Pair','Sqft','Sqm','Bundle','Dozen','Roll','Coil','Drum','Tin','Can','Bag','Bottle','Tube','Sheet','Bar','Unit'];
+const emptyPart = (): Part => ({ product_name: '', quantity: 1, unit: 'Pcs' });
+// Matches Inventory module's exact status convention so stock state stays consistent
+const getInventoryStatus = (stock: number, reorder: number) => {
+  if (stock === 0) return 'Out of Stock';
+  if (stock <= reorder) return 'Low Stock';
+  return 'In Stock';
+};
 
 const FieldService: React.FC = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [techs, setTechs] = useState<Technician[]>([]);
+  const [parts, setParts] = useState<Part[]>([]);
+  const [inventoryProducts, setInventoryProducts] = useState<InventoryProduct[]>([]);
+  const [formParts, setFormParts] = useState<Part[]>([emptyPart()]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState<Job>(emptyJob);
@@ -62,12 +85,16 @@ const FieldService: React.FC = () => {
 
   const fetchData = async () => {
     setLoading(true);
-    const [{ data: j }, { data: t }] = await Promise.all([
+    const [{ data: j }, { data: t }, { data: p }, { data: ip }] = await Promise.all([
       supabase.from('jobs').select('*').order('created_at', { ascending: false }),
       supabase.from('technicians').select('*').order('name'),
+      supabase.from('job_parts').select('*').order('created_at', { ascending: false }),
+      supabase.from('products').select('id,name,sku,stock,reorder_level,price,status').order('name'),
     ]);
     setJobs(j || []);
     setTechs(t || []);
+    setParts(p || []);
+    setInventoryProducts(ip || []);
     setLoading(false);
   };
 
@@ -81,26 +108,81 @@ const FieldService: React.FC = () => {
 
   const filteredJobs = filter === 'All' ? jobs : jobs.filter(j => j.status === filter);
 
-  const openAdd = () => { setEditing(null); setForm(emptyJob); setShowModal(true); };
-  const openEdit = (j: Job) => { setEditing(j); setForm({ ...j }); setShowModal(true); };
-  const closeModal = () => { setShowModal(false); setEditing(null); setForm(emptyJob); };
+  const openAdd = () => { setEditing(null); setForm(emptyJob); setFormParts([emptyPart()]); setShowModal(true); };
+  const openEdit = (j: Job) => {
+    setEditing(j); setForm({ ...j });
+    const existing = parts.filter(p => p.job_id === j.id);
+    setFormParts(existing.length > 0 ? existing : [emptyPart()]);
+    setShowModal(true);
+  };
+  const closeModal = () => { setShowModal(false); setEditing(null); setForm(emptyJob); setFormParts([emptyPart()]); };
+
+  const updatePart = (i: number, field: string, val: any) => {
+    const updated = [...formParts];
+    (updated[i] as any)[field] = val;
+    if (field === 'product_id') {
+      const inv = inventoryProducts.find(ip => ip.id === val);
+      if (inv) updated[i].product_name = inv.name;
+    }
+    setFormParts(updated);
+  };
 
   const handleSave = async () => {
     if (!form.title || !form.customer) { showToast('Title and Customer are required.', 'error'); return; }
+    const validParts = formParts.filter(p => p.product_name?.trim());
     setSaving(true);
+
     if (editing?.id) {
+      // Editing never re-deducts stock — parts/quantity are locked once stock has been applied.
       const { error } = await supabase.from('jobs').update({ ...form }).eq('id', editing.id);
-      if (error) showToast('Update failed: ' + error.message, 'error');
-      else { showToast('Job updated!', 'success'); closeModal(); fetchData(); }
+      if (error) { showToast('Update failed: ' + error.message, 'error'); setSaving(false); return; }
+      showToast('Job updated!', 'success'); closeModal(); fetchData();
     } else {
-      const { error } = await supabase.from('jobs').insert([form]);
-      if (error) showToast('Failed: ' + error.message, 'error');
-      else { showToast('Job created!', 'success'); closeModal(); fetchData(); }
+      const stockIssues: string[] = [];
+      for (const part of validParts) {
+        if (!part.product_id) continue;
+        const inv = inventoryProducts.find(ip => ip.id === part.product_id);
+        if (inv && inv.stock < part.quantity) stockIssues.push(`${inv.name}: only ${inv.stock} in stock, need ${part.quantity}`);
+      }
+      if (stockIssues.length > 0) {
+        const proceed = window.confirm(`⚠️ Not enough stock for:\n\n${stockIssues.join('\n')}\n\nSave anyway? Stock will go negative.`);
+        if (!proceed) { setSaving(false); return; }
+      }
+
+      const { data, error } = await supabase.from('jobs').insert([{ ...form, stock_applied: validParts.some(p=>p.product_id) }]).select().single();
+      if (error) { showToast('Failed: ' + error.message, 'error'); setSaving(false); return; }
+      const jobId = data.id;
+
+      if (validParts.length > 0) {
+        const partPayload = validParts.map(p => { const { id, ...rest } = p; return { ...rest, job_id: jobId }; });
+        const { error: partErr } = await supabase.from('job_parts').insert(partPayload);
+        if (partErr) {
+          showToast('⚠️ Job saved but PARTS FAILED to save: ' + partErr.message, 'error');
+          closeModal(); fetchData(); setSaving(false); return;
+        }
+        for (const part of validParts.filter(p => p.product_id)) {
+          const inv = inventoryProducts.find(ip => ip.id === part.product_id);
+          if (!inv) continue;
+          const newStock = inv.stock - part.quantity;
+          await supabase.from('products').update({ stock: newStock, status: getInventoryStatus(Math.max(0, newStock), inv.reorder_level) }).eq('id', inv.id);
+          await supabase.from('stock_movements').insert([{
+            product_id: inv.id, product_name: inv.name,
+            type: 'Issue', quantity: part.quantity, note: `Used for Field Service Job: ${form.title}`,
+          }]);
+        }
+      }
+      showToast(validParts.length>0 ? 'Job created & Inventory stock updated!' : 'Job created!', 'success');
+      closeModal(); fetchData();
     }
     setSaving(false);
   };
 
   const handleDelete = async (id: string) => {
+    const job = jobs.find(j => j.id === id);
+    if (job?.stock_applied) {
+      const proceed = window.confirm('This job already deducted parts from Inventory. Deleting it will NOT automatically restore that stock.\n\nDelete anyway?');
+      if (!proceed) return;
+    }
     setDeleting(id);
     const { error } = await supabase.from('jobs').delete().eq('id', id);
     if (error) showToast('Delete failed: ' + error.message, 'error');
@@ -243,7 +325,7 @@ const FieldService: React.FC = () => {
             className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4"
             onClick={e => { if (e.target === e.currentTarget) closeModal(); }}>
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between p-6 border-b border-gray-100">
                 <h2 className="text-lg font-bold text-gray-800">{editing ? 'Edit Job' : 'New Field Service Job'}</h2>
                 <button onClick={closeModal} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200"><X size={16} /></button>
@@ -279,6 +361,39 @@ const FieldService: React.FC = () => {
                       {statuses.map(s => <option key={s}>{s}</option>)}
                     </select>
                   </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-bold text-gray-500 uppercase">🔧 Parts / Spares Used</p>
+                    {!editing && <button onClick={() => setFormParts([...formParts, emptyPart()])} className="text-xs text-emerald-600 hover:text-emerald-800 flex items-center gap-1"><Plus size={11}/> Add Part</button>}
+                  </div>
+                  {editing && <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5 mb-2">⚠️ Parts/quantity can't be changed after creation — Inventory stock was already deducted.</p>}
+                  {!editing && <p className="text-[11px] text-gray-400 mb-2">Optional — only fill this in if the technician needs spare parts for this job. Stock deducts immediately on save.</p>}
+                  <table className="w-full text-xs">
+                    <thead><tr className="bg-gray-50 text-gray-500">
+                      <th className="p-1.5 text-left font-medium">Part</th>
+                      <th className="p-1.5 font-medium">Qty</th>
+                      <th className="p-1.5 font-medium">Unit</th>
+                      {!editing && <th></th>}
+                    </tr></thead>
+                    <tbody>
+                      {formParts.map((part, i) => (
+                        <tr key={i} className="border-b border-gray-100">
+                          <td className="p-1">
+                            <select disabled={!!editing} value={part.product_id || ''} onChange={e => updatePart(i, 'product_id', e.target.value)}
+                              className="w-48 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none disabled:bg-gray-50 disabled:text-gray-400">
+                              <option value="">— No part needed —</option>
+                              {inventoryProducts.map(ip => <option key={ip.id} value={ip.id}>{ip.name} (Stock: {ip.stock})</option>)}
+                            </select>
+                          </td>
+                          <td className="p-1"><input disabled={!!editing} type="number" value={part.quantity || ''} onChange={e => updatePart(i, 'quantity', Number(e.target.value))} className="w-16 border border-gray-200 rounded px-2 py-1 text-xs text-center focus:outline-none disabled:bg-gray-50"/></td>
+                          <td className="p-1"><select disabled={!!editing} value={part.unit} onChange={e => updatePart(i, 'unit', e.target.value)} className="w-16 border border-gray-200 rounded px-1 py-1 text-xs focus:outline-none disabled:bg-gray-50">{UNITS.map(u=><option key={u}>{u}</option>)}</select></td>
+                          {!editing && <td className="p-1"><button onClick={()=>setFormParts(formParts.filter((_,idx)=>idx!==i))} className="text-gray-300 hover:text-red-500"><X size={13}/></button></td>}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
               <div className="flex justify-end gap-3 p-6 border-t border-gray-100">
