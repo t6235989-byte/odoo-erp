@@ -78,8 +78,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activeModule, onModuleChange, collaps
           <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" onError={e=>{(e.target as HTMLImageElement).style.display='none'; (e.target as HTMLImageElement).parentElement!.innerHTML='<span class=\"text-purple-700 font-black text-sm\">PH</span>';}} />
         </div>
         {!collapsed && (
-          <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-white font-bold text-xs tracking-wide leading-tight">
-            PUNJAB HITECH<br/><span className="text-purple-400 text-[10px] font-semibold">AGRO MACHINERY WORKS</span>
+          <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="font-bold text-xs tracking-wide leading-tight">
+            <span style={{color:'#22c55e'}}>PUNJAB HITECH AGRO</span><br/><span style={{color:'#1e3a8a'}} className="text-[10px] font-semibold">MACHINERY WORKS</span>
           </motion.span>
         )}
       </div>
