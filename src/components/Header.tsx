@@ -1,14 +1,17 @@
 import React, { useState } from 'react';
-import { Bell, Search, Settings, User, ChevronDown } from 'lucide-react';
+import { Bell, Search, Settings, User, LogOut } from 'lucide-react';
 
 interface HeaderProps {
   title: string;
   subtitle: string;
   color: string;
+  onLogout: () => void;
+  userEmail: string;
 }
 
-const Header: React.FC<HeaderProps> = ({ title, subtitle, color }) => {
+const Header: React.FC<HeaderProps> = ({ title, subtitle, color, onLogout, userEmail }) => {
   const [showNotif, setShowNotif] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   return (
     <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 sticky top-0 z-40 shadow-sm">
@@ -33,7 +36,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, color }) => {
         {/* Notification */}
         <div className="relative">
           <button
-            onClick={() => setShowNotif(!showNotif)}
+            onClick={() => { setShowNotif(!showNotif); setShowUserMenu(false); }}
             className="relative w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors"
           >
             <Bell size={17} className="text-gray-600" />
@@ -65,16 +68,36 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, color }) => {
           <Settings size={17} className="text-gray-600" />
         </button>
 
-        {/* User */}
-        <div className="flex items-center gap-2 cursor-pointer ml-1">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center">
-            <User size={17} className="text-white" />
-          </div>
-          <div className="hidden md:block">
-            <p className="text-sm font-semibold text-gray-700 leading-none">Admin User</p>
-            <p className="text-xs text-gray-400 mt-0.5">Administrator</p>
-          </div>
-          <ChevronDown size={14} className="text-gray-400 hidden md:block" />
+        {/* User + Logout dropdown */}
+        <div className="relative">
+          <button
+            onClick={() => { setShowUserMenu(!showUserMenu); setShowNotif(false); }}
+            className="flex items-center gap-2 cursor-pointer ml-1 hover:opacity-80 transition-opacity"
+          >
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center">
+              <User size={17} className="text-white" />
+            </div>
+            <div className="hidden md:block text-left">
+              <p className="text-sm font-semibold text-gray-700 leading-none">Admin User</p>
+              <p className="text-xs text-gray-400 mt-0.5 max-w-[140px] truncate">{userEmail}</p>
+            </div>
+          </button>
+
+          {showUserMenu && (
+            <div className="absolute right-0 top-12 w-56 bg-white shadow-xl rounded-2xl border border-gray-100 overflow-hidden z-50">
+              <div className="px-4 py-3 border-b border-gray-100">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Signed in as</p>
+                <p className="text-sm text-gray-700 mt-0.5 truncate">{userEmail}</p>
+              </div>
+              <button
+                onClick={onLogout}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <LogOut size={15} />
+                Sign Out
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>

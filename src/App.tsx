@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import type { Session } from '@supabase/supabase-js';
 import type { ModuleId } from './types';
+import { supabase } from './lib/supabase';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
+import Login from './components/Login';
 import Dashboard from './modules/Dashboard';
 import Inventory from './modules/Inventory';
 import Accounting from './modules/Accounting';
@@ -36,9 +39,9 @@ const moduleConfig: Record<ModuleId, { title: string; subtitle: string; color: s
   livechat:     { title: '💬 Live Chat',            subtitle: 'Customer support & real-time messaging',  color: '#6366F1' },
   recruitment:  { title: '🧑‍💼 Recruitment',       subtitle: 'Job applications, interviews & hiring pipeline', color: '#7C3AED' },
   timeoff:      { title: '🌴 Time Off',             subtitle: 'Leave requests, approvals & attendance',  color: '#2563EB' },
-  backup:       { title: '🗄 Data Backup', subtitle: 'Export all data to Excel & PDF', color: '#7C3AED' },
-  partyledger:  { title: '📒 Party Ledger', subtitle: 'Customer accounts, dues & statement', color: '#7C3AED' },
-  purchase:     { title: '🛒 Purchase', subtitle: 'Bills, vendor payments & price comparison', color: '#2563EB' },
+  backup:       { title: '🗄 Data Backup',           subtitle: 'Export all data to Excel & PDF',          color: '#7C3AED' },
+  partyledger:  { title: '📒 Party Ledger',         subtitle: 'Customer accounts, dues & statement',     color: '#7C3AED' },
+  purchase:     { title: '🛒 Purchase',             subtitle: 'Bills, vendor payments & price comparison', color: '#2563EB' },
   attendance:   { title: '🕐 Attendance & Payroll', subtitle: 'Daily attendance, work tracking & salary ledger', color: '#059669' },
   appraisals:   { title: '⭐ Appraisals',           subtitle: 'Employee performance reviews & feedback',  color: '#D97706' },
 };
@@ -68,18 +71,75 @@ const ModuleRenderer: React.FC<{ module: ModuleId }> = ({ module }) => {
 };
 
 function App() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const [activeModule, setActiveModule] = useState<ModuleId>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  useEffect(() => {
+    // Check if already logged in
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setCheckingAuth(false);
+    });
+
+    // Listen for login / logout events
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
+  // Still checking — show nothing (avoids flicker)
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 flex items-center justify-center">
+        <div className="text-white text-sm opacity-60">Loading...</div>
+      </div>
+    );
+  }
+
+  // Not logged in — show login page
+  if (!session) {
+    return <Login />;
+  }
+
+  // Logged in — show the full ERP
   const config = moduleConfig[activeModule];
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
-      <Sidebar activeModule={activeModule} onModuleChange={setActiveModule} collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
-      <div className="flex-1 flex flex-col overflow-hidden transition-all duration-300" style={{ marginLeft: sidebarCollapsed ? 72 : 240 }}>
-        <Header title={config.title} subtitle={config.subtitle} color={config.color} />
+      <Sidebar
+        activeModule={activeModule}
+        onModuleChange={setActiveModule}
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+      />
+      <div
+        className="flex-1 flex flex-col overflow-hidden transition-all duration-300"
+        style={{ marginLeft: sidebarCollapsed ? 72 : 240 }}
+      >
+        <Header
+          title={config.title}
+          subtitle={config.subtitle}
+          color={config.color}
+          onLogout={handleLogout}
+          userEmail={session.user.email ?? ''}
+        />
         <main className="flex-1 overflow-y-auto p-6">
           <AnimatePresence mode="wait">
-            <motion.div key={activeModule} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.25, ease: 'easeInOut' }}>
+            <motion.div
+              key={activeModule}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.25, ease: 'easeInOut' }}
+            >
               <ModuleRenderer module={activeModule} />
             </motion.div>
           </AnimatePresence>
