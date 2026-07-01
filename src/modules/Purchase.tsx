@@ -141,10 +141,11 @@ const Purchase: React.FC = () => {
         // "167825" or "cheque" finds the bill via its payment record.
         const billPayments = payments.filter(p=>p.bill_id===b.id);
         const paymentNotes = billPayments.map(p=>p.note).filter(Boolean).join(' ');
+        const billItemsText = billItems.filter((i:any)=>i.bill_id===b.id).map((i:any)=>[i.product_name,i.description,i.hsn_code].filter(Boolean).join(' ')).join(' ');
         const haystack = [
           b.bill_number, b.invoice_no, b.vendor_name, b.vendor_gstin, b.notes,
           String(b.total_amount), String(Math.round(b.total_amount)),
-          paymentNotes,
+          paymentNotes, billItemsText,
         ].filter(Boolean).join(' ').toLowerCase();
         if (!haystack.includes(q)) return false;
       }
