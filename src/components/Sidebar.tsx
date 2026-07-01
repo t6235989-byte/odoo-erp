@@ -74,12 +74,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activeModule, onModuleChange, collaps
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-5 border-b border-white/10">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center flex-shrink-0 shadow-lg">
-          <span className="text-white font-black text-sm">O</span>
+        <div className="w-9 h-9 rounded-xl overflow-hidden flex-shrink-0 shadow-lg bg-white flex items-center justify-center">
+          <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" onError={e=>{(e.target as HTMLImageElement).style.display='none'; (e.target as HTMLImageElement).parentElement!.innerHTML='<span class=\"text-purple-700 font-black text-sm\">PH</span>';}} />
         </div>
         {!collapsed && (
-          <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-white font-bold text-lg tracking-wide">
-            Odoo<span className="text-purple-400">ERP</span>
+          <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-white font-bold text-xs tracking-wide leading-tight">
+            PUNJAB HITECH<br/><span className="text-purple-400 text-[10px] font-semibold">AGRO MACHINERY WORKS</span>
           </motion.span>
         )}
       </div>

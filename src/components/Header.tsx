@@ -78,7 +78,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, color, onLogout, userE
               <User size={17} className="text-white" />
             </div>
             <div className="hidden md:block text-left">
-              <p className="text-sm font-semibold text-gray-700 leading-none">Admin User</p>
+              <p className="text-sm font-semibold text-gray-700 leading-none">Punjab Hitech</p>
               <p className="text-xs text-gray-400 mt-0.5 max-w-[140px] truncate">{userEmail}</p>
             </div>
           </button>

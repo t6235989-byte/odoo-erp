@@ -25,11 +25,12 @@ const Login: React.FC = () => {
       <div className="w-full max-w-md">
         {/* Logo / Brand */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-400 to-indigo-500 shadow-lg mb-4">
-            <span className="text-2xl font-black text-white">O</span>
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white shadow-lg mb-4 overflow-hidden">
+            <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" onError={e=>{(e.target as HTMLImageElement).style.display='none'; (e.target as HTMLImageElement).parentElement!.innerHTML='<span class=\"text-purple-700 font-black text-xl\">PH</span>';}} />
           </div>
-          <h1 className="text-3xl font-black text-white tracking-tight">OdooERP</h1>
-          <p className="text-indigo-300 text-sm mt-1">Sign in to access your business dashboard</p>
+          <h1 className="text-2xl font-black text-white tracking-tight">PUNJAB HITECH</h1>
+          <p className="text-purple-300 text-sm font-semibold">AGRO MACHINERY WORKS</p>
+          <p className="text-indigo-400 text-xs mt-1">Sign in to access your business dashboard</p>
         </div>
 
         {/* Card */}
