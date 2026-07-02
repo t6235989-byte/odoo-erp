@@ -29,7 +29,7 @@ const Login: React.FC = () => {
             <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" onError={e=>{(e.target as HTMLImageElement).style.display='none'; (e.target as HTMLImageElement).parentElement!.innerHTML='<span class=\"text-purple-700 font-black text-xl\">PH</span>';}} />
           </div>
           <h1 className="text-2xl font-black tracking-tight"><span style={{color:'#22c55e'}}>PUNJAB HITECH AGRO</span></h1>
-          <p className="text-sm font-bold" style={{color:'#1e3a8a'}}>MACHINERY WORKS</p>
+          <p className="text-sm font-bold tracking-widest text-white">MACHINERY WORKS</p>
           <p className="text-indigo-400 text-xs mt-1">Sign in to access your business dashboard</p>
         </div>
 
