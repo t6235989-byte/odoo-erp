@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { Phone, Plus, Search, Edit2, Trash2, X, PhoneCall, History, ChevronDown, ChevronUp } from 'lucide-react';
+import { Phone, Plus, Search, Edit2, Trash2, X, PhoneCall, History, ChevronDown, ChevronUp, FileUp, FileText, Eye, Loader } from 'lucide-react';
 
 type Contact = {
   id?: string; name: string; phone: string; phone2: string;
@@ -9,6 +9,9 @@ type Contact = {
 type HistoryEntry = {
   id?: string; contact_id: string; work_date: string;
   work_description: string; rate: number; notes: string;
+};
+type ContactDoc = {
+  id?: string; contact_id: string; doc_name: string; file_url: string; file_name: string; uploaded_at?: string;
 };
 
 const CATEGORIES = ['All','Customer','Vendor','Painter','Welder','Transporter','Electrician','Mechanic','Plumber','Carpenter','Labour','Seller','Purchaser','Agent','Other'];
@@ -26,27 +29,35 @@ const fmt = (d:string) => { if(!d) return ''; const [y,m,dd]=d.split('-'); retur
 export default function Contacts() {
   const [contacts,setContacts]=useState<Contact[]>([]);
   const [history,setHistory]=useState<HistoryEntry[]>([]);
+  const [docs,setDocs]=useState<ContactDoc[]>([]);
   const [search,setSearch]=useState('');
   const [filterCat,setFilterCat]=useState('All');
   const [showModal,setShowModal]=useState(false);
   const [form,setForm]=useState<Contact>(emptyC);
   const [editing,setEditing]=useState<Contact|null>(null);
   const [expandedId,setExpandedId]=useState<string|null>(null);
+  const [activeTab,setActiveTab]=useState<Record<string,'history'|'docs'>>({});
   const [showHModal,setShowHModal]=useState(false);
   const [hForm,setHForm]=useState<HistoryEntry>(emptyH());
   const [editingH,setEditingH]=useState<HistoryEntry|null>(null);
   const [activeC,setActiveC]=useState<Contact|null>(null);
+  const [showDocModal,setShowDocModal]=useState(false);
+  const [docName,setDocName]=useState('');
+  const [docFile,setDocFile]=useState<File|null>(null);
+  const [uploading,setUploading]=useState(false);
   const [loading,setLoading]=useState(false);
   const [toast,setToast]=useState('');
+  const fileRef=useRef<HTMLInputElement>(null);
 
   useEffect(()=>{loadAll();},[]);
   const showToast=(msg:string)=>{setToast(msg);setTimeout(()=>setToast(''),3000);};
   const loadAll=async()=>{
-    const [{data:c},{data:h}]=await Promise.all([
+    const [{data:c},{data:h},{data:d}]=await Promise.all([
       supabase.from('contacts').select('*').order('name'),
       supabase.from('contact_history').select('*').order('work_date',{ascending:false}),
+      supabase.from('contact_documents').select('*').order('uploaded_at',{ascending:false}),
     ]);
-    setContacts(c||[]);setHistory(h||[]);
+    setContacts(c||[]);setHistory(h||[]);setDocs(d||[]);
   };
 
   const openAdd=()=>{setEditing(null);setForm(emptyC);setShowModal(true);};
@@ -60,7 +71,7 @@ export default function Contacts() {
     setLoading(false);setShowModal(false);loadAll();
   };
   const delContact=async(c:Contact)=>{
-    if(!confirm(`Delete "${c.name}" and all history?`))return;
+    if(!confirm(`Delete "${c.name}" and all data?`))return;
     await supabase.from('contacts').delete().eq('id',c.id);
     showToast('Deleted');loadAll();
   };
@@ -76,7 +87,29 @@ export default function Contacts() {
   };
   const delH=async(h:HistoryEntry)=>{
     if(!confirm('Delete this entry?'))return;
-    await supabase.from('contact_history').delete().eq('id',h.id);
+    await supabase.from('contact_history').delete().eq('id',h.id);showToast('Deleted');loadAll();
+  };
+
+  // Doc upload
+  const openDocModal=(c:Contact)=>{setActiveC(c);setDocName('');setDocFile(null);setShowDocModal(true);};
+  const uploadDoc=async()=>{
+    if(!docFile||!docName.trim()){showToast('Name and file required');return;}
+    setUploading(true);
+    try{
+      const ext=docFile.name.split('.').pop();
+      const fileName=`contact-docs/${activeC!.id}/${Date.now()}.${ext}`;
+      const{error:upErr}=await supabase.storage.from('contact-docs').upload(fileName,docFile);
+      if(upErr){showToast('Upload failed: '+upErr.message);setUploading(false);return;}
+      const{data:urlData}=supabase.storage.from('contact-docs').getPublicUrl(fileName);
+      await supabase.from('contact_documents').insert([{contact_id:activeC!.id,doc_name:docName,file_url:urlData.publicUrl,file_name:fileName}]);
+      showToast('Document uploaded ✓');setShowDocModal(false);loadAll();
+    }catch(e){showToast('Upload failed');}
+    setUploading(false);
+  };
+  const delDoc=async(d:ContactDoc)=>{
+    if(!confirm('Delete this document?'))return;
+    await supabase.storage.from('contact-docs').remove([d.file_name]);
+    await supabase.from('contact_documents').delete().eq('id',d.id);
     showToast('Deleted');loadAll();
   };
 
@@ -86,7 +119,9 @@ export default function Contacts() {
     return matchCat&&(!q||c.name.toLowerCase().includes(q)||c.phone.includes(q)||(c.phone2||'').includes(q)||(c.company||'').toLowerCase().includes(q));
   });
   const getH=(id:string)=>history.filter(h=>h.contact_id===id);
+  const getD=(id:string)=>docs.filter(d=>d.contact_id===id);
   const getLatest=(id:string)=>{const h=getH(id);return h.length>0&&h[0].rate>0?h[0].rate:null;};
+  const getTab=(id:string)=>activeTab[id]||'history';
 
   return (
     <div className="space-y-4">
@@ -131,7 +166,7 @@ export default function Contacts() {
         ):(
           <div className="divide-y divide-gray-50">
             {filtered.map(c=>{
-              const cH=getH(c.id!);const lr=getLatest(c.id!);const isExp=expandedId===c.id;
+              const cH=getH(c.id!);const cD=getD(c.id!);const lr=getLatest(c.id!);const isExp=expandedId===c.id;const tab=getTab(c.id!);
               return(
                 <div key={c.id}>
                   <div className="flex items-center justify-between px-4 py-3 hover:bg-gray-50">
@@ -145,6 +180,7 @@ export default function Contacts() {
                           <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${CAT_COLORS[c.category]||'bg-gray-100 text-gray-600'}`}>{c.category}</span>
                           {lr&&<span className="text-[10px] px-2 py-0.5 rounded-full bg-green-50 text-green-700 font-medium">Latest: ₹{lr.toLocaleString('en-IN')}</span>}
                           {cH.length>0&&<span className="text-[10px] text-gray-400">{cH.length} job{cH.length>1?'s':''}</span>}
+                          {cD.length>0&&<span className="text-[10px] text-purple-500">📎 {cD.length} doc{cD.length>1?'s':''}</span>}
                         </div>
                         {c.company&&<p className="text-xs text-gray-500">{c.company}</p>}
                         <div className="flex items-center gap-3 mt-0.5">
@@ -158,6 +194,9 @@ export default function Contacts() {
                       <button onClick={()=>openAddH(c)} title="Add work history" className="w-8 h-8 rounded-lg bg-amber-50 hover:bg-amber-100 flex items-center justify-center">
                         <History size={14} className="text-amber-600"/>
                       </button>
+                      <button onClick={()=>openDocModal(c)} title="Upload document" className="w-8 h-8 rounded-lg bg-purple-50 hover:bg-purple-100 flex items-center justify-center">
+                        <FileUp size={14} className="text-purple-600"/>
+                      </button>
                       <a href={`tel:${c.phone}`} className="w-8 h-8 rounded-lg bg-green-50 hover:bg-green-100 flex items-center justify-center">
                         <Phone size={14} className="text-green-600"/>
                       </a>
@@ -167,7 +206,7 @@ export default function Contacts() {
                       <button onClick={()=>delContact(c)} className="w-8 h-8 rounded-lg bg-red-50 hover:bg-red-100 flex items-center justify-center">
                         <Trash2 size={14} className="text-red-500"/>
                       </button>
-                      {cH.length>0&&(
+                      {(cH.length>0||cD.length>0)&&(
                         <button onClick={()=>setExpandedId(isExp?null:c.id!)} className="w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center">
                           {isExp?<ChevronUp size={14} className="text-gray-600"/>:<ChevronDown size={14} className="text-gray-600"/>}
                         </button>
@@ -175,28 +214,79 @@ export default function Contacts() {
                     </div>
                   </div>
 
-                  {isExp&&cH.length>0&&(
-                    <div className="bg-amber-50 border-t border-amber-100 px-4 py-3">
-                      <p className="text-xs font-semibold text-amber-700 mb-2">📋 Work & Rate History</p>
-                      <div className="space-y-2">
-                        {cH.map((h,i)=>(
-                          <div key={h.id} className="flex items-start justify-between bg-white rounded-xl px-3 py-2 shadow-sm">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-xs font-semibold text-gray-700">{fmt(h.work_date)}</span>
-                                {i===0&&<span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">Latest</span>}
-                                {h.rate>0&&<span className="text-xs font-bold text-green-700">₹{h.rate.toLocaleString('en-IN')}</span>}
-                              </div>
-                              <p className="text-xs text-gray-600 mt-0.5">{h.work_description}</p>
-                              {h.notes&&<p className="text-[11px] text-gray-400 italic">"{h.notes}"</p>}
-                            </div>
-                            <div className="flex gap-1 ml-2">
-                              <button onClick={()=>openEditH(c,h)} className="w-7 h-7 rounded-lg bg-blue-50 hover:bg-blue-100 flex items-center justify-center"><Edit2 size={12} className="text-blue-600"/></button>
-                              <button onClick={()=>delH(h)} className="w-7 h-7 rounded-lg bg-red-50 hover:bg-red-100 flex items-center justify-center"><Trash2 size={12} className="text-red-500"/></button>
-                            </div>
-                          </div>
-                        ))}
+                  {/* Expanded Panel */}
+                  {isExp&&(
+                    <div className="border-t border-gray-100">
+                      {/* Tabs */}
+                      <div className="flex border-b border-gray-100 bg-gray-50">
+                        <button onClick={()=>setActiveTab({...activeTab,[c.id!]:'history'})}
+                          className={`flex-1 py-2 text-xs font-semibold transition-colors ${tab==='history'?'text-amber-600 border-b-2 border-amber-500 bg-white':'text-gray-500 hover:text-gray-700'}`}>
+                          📋 Work History ({cH.length})
+                        </button>
+                        <button onClick={()=>setActiveTab({...activeTab,[c.id!]:'docs'})}
+                          className={`flex-1 py-2 text-xs font-semibold transition-colors ${tab==='docs'?'text-purple-600 border-b-2 border-purple-500 bg-white':'text-gray-500 hover:text-gray-700'}`}>
+                          📎 Documents ({cD.length})
+                        </button>
                       </div>
+
+                      {/* History Tab */}
+                      {tab==='history'&&(
+                        <div className="bg-amber-50 px-4 py-3">
+                          {cH.length===0?<p className="text-xs text-gray-400 text-center py-2">No work history yet. Click 🕐 to add.</p>:(
+                            <div className="space-y-2">
+                              {cH.map((h,i)=>(
+                                <div key={h.id} className="flex items-start justify-between bg-white rounded-xl px-3 py-2 shadow-sm">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="text-xs font-semibold text-gray-700">{fmt(h.work_date)}</span>
+                                      {i===0&&<span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">Latest</span>}
+                                      {h.rate>0&&<span className="text-xs font-bold text-green-700">₹{h.rate.toLocaleString('en-IN')}</span>}
+                                    </div>
+                                    <p className="text-xs text-gray-600 mt-0.5">{h.work_description}</p>
+                                    {h.notes&&<p className="text-[11px] text-gray-400 italic">"{h.notes}"</p>}
+                                  </div>
+                                  <div className="flex gap-1 ml-2">
+                                    <button onClick={()=>openEditH(c,h)} className="w-7 h-7 rounded-lg bg-blue-50 hover:bg-blue-100 flex items-center justify-center"><Edit2 size={12} className="text-blue-600"/></button>
+                                    <button onClick={()=>delH(h)} className="w-7 h-7 rounded-lg bg-red-50 hover:bg-red-100 flex items-center justify-center"><Trash2 size={12} className="text-red-500"/></button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Docs Tab */}
+                      {tab==='docs'&&(
+                        <div className="bg-purple-50 px-4 py-3">
+                          {cD.length===0?<p className="text-xs text-gray-400 text-center py-2">No documents yet. Click 📎 to upload rate papers, photos etc.</p>:(
+                            <div className="space-y-2">
+                              {cD.map(d=>{
+                                const isImg=d.file_url.match(/\.(jpg|jpeg|png|webp|gif)$/i);
+                                return(
+                                  <div key={d.id} className="flex items-center justify-between bg-white rounded-xl px-3 py-2 shadow-sm">
+                                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                                      {isImg?(
+                                        <img src={d.file_url} alt={d.doc_name} className="w-10 h-10 rounded-lg object-cover border border-gray-200 flex-shrink-0"/>
+                                      ):(
+                                        <div className="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center flex-shrink-0"><FileText size={18} className="text-red-500"/></div>
+                                      )}
+                                      <div className="min-w-0">
+                                        <p className="text-xs font-semibold text-gray-700 truncate">{d.doc_name}</p>
+                                        <p className="text-[10px] text-gray-400">{d.uploaded_at?fmt(d.uploaded_at.split('T')[0]):''}</p>
+                                      </div>
+                                    </div>
+                                    <div className="flex gap-1 ml-2">
+                                      <a href={d.file_url} target="_blank" rel="noopener noreferrer" className="w-7 h-7 rounded-lg bg-blue-50 hover:bg-blue-100 flex items-center justify-center"><Eye size={12} className="text-blue-600"/></a>
+                                      <button onClick={()=>delDoc(d)} className="w-7 h-7 rounded-lg bg-red-50 hover:bg-red-100 flex items-center justify-center"><Trash2 size={12} className="text-red-500"/></button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -222,7 +312,7 @@ export default function Contacts() {
                 <div className="flex flex-wrap gap-1.5">
                   {CATEGORIES.filter(c=>c!=='All').map(cat=>(
                     <button key={cat} onClick={()=>setForm({...form,category:cat})}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${form.category===cat?'bg-blue-600 text-white border-blue-600':'bg-gray-50 text-gray-600 border-gray-200 hover:border-blue-300'}`}>{cat}</button>
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${form.category===cat?'bg-blue-600 text-white border-blue-600':'bg-gray-50 text-gray-600 border-gray-200'}`}>{cat}</button>
                   ))}
                 </div>
               </div>
@@ -292,6 +382,42 @@ export default function Contacts() {
               <button onClick={()=>setShowHModal(false)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">Cancel</button>
               <button onClick={saveH} disabled={loading} className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-semibold disabled:opacity-60">
                 {loading?'Saving...':editingH?'Update':'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Document Upload Modal */}
+      {showDocModal&&(
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div>
+                <h3 className="font-bold text-gray-800">📎 Upload Document</h3>
+                <p className="text-xs text-purple-600 font-medium">{activeC?.name}</p>
+              </div>
+              <button onClick={()=>setShowDocModal(false)} className="w-8 h-8 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center"><X size={15}/></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Document Name *</label>
+                <input value={docName} onChange={e=>setDocName(e.target.value)} placeholder="e.g. Rate Paper 2025, Agreement Photo"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200"/></div>
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Select File * (Photo, PDF)</label>
+                <input ref={fileRef} type="file" accept="image/*,.pdf" onChange={e=>setDocFile(e.target.files?.[0]||null)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-600 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"/>
+                {docFile&&<p className="text-xs text-gray-500 mt-1">📄 {docFile.name}</p>}
+              </div>
+              {docFile&&docFile.type.startsWith('image/')&&(
+                <img src={URL.createObjectURL(docFile)} alt="preview" className="w-full max-h-40 object-contain rounded-xl border border-gray-200"/>
+              )}
+            </div>
+            <div className="px-5 py-4 border-t border-gray-100 flex gap-2">
+              <button onClick={()=>setShowDocModal(false)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">Cancel</button>
+              <button onClick={uploadDoc} disabled={uploading||!docFile||!docName.trim()}
+                className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-sm font-semibold disabled:opacity-60 flex items-center justify-center gap-2">
+                {uploading&&<Loader size={13} className="animate-spin"/>}
+                {uploading?'Uploading...':'Upload'}
               </button>
             </div>
           </div>
