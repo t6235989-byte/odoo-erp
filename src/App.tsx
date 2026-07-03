@@ -24,6 +24,7 @@ import Attendance from './modules/Attendance';
 import Purchase from './modules/Purchase';
 import PartyLedger from './modules/PartyLedger';
 import Backup from './modules/Backup';
+import Contacts from './modules/Contacts';
 
 const moduleConfig: Record<ModuleId, { title: string; subtitle: string; color: string }> = {
   dashboard:    { title: '📊 Main Dashboard',      subtitle: 'Overview of all business operations',     color: '#7C3AED' },
@@ -40,6 +41,7 @@ const moduleConfig: Record<ModuleId, { title: string; subtitle: string; color: s
   recruitment:  { title: '🧑‍💼 Recruitment',       subtitle: 'Job applications, interviews & hiring pipeline', color: '#7C3AED' },
   timeoff:      { title: '🌴 Time Off',             subtitle: 'Leave requests, approvals & attendance',  color: '#2563EB' },
   backup:       { title: '🗄 Data Backup',           subtitle: 'Export all data to Excel & PDF',          color: '#7C3AED' },
+  contacts:     { title: '📒 Number Diary',           subtitle: 'Contacts — painters, welders, vendors & more', color: '#0891B2' },
   partyledger:  { title: '📒 Party Ledger',         subtitle: 'Customer accounts, dues & statement',     color: '#7C3AED' },
   purchase:     { title: '🛒 Purchase',             subtitle: 'Bills, vendor payments & price comparison', color: '#2563EB' },
   attendance:   { title: '🕐 Attendance & Payroll', subtitle: 'Daily attendance, work tracking & salary ledger', color: '#059669' },
@@ -66,6 +68,7 @@ const ModuleRenderer: React.FC<{ module: ModuleId }> = ({ module }) => {
     case 'purchase':      return <Purchase />;
     case 'partyledger':   return <PartyLedger />;
     case 'backup':        return <Backup />;
+    case 'contacts':      return <Contacts />;
     default:              return <Dashboard />;
   }
 };
