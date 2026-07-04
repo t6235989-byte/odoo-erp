@@ -67,6 +67,9 @@ const PartyLedger: React.FC = () => {
       if(t.type==='Payment'||t.type==='Return'||t.type==='Credit Note') return s - t.amount;
       if(t.type==='Purchase Bill') return s - t.amount;
       if(t.type==='Vendor Payment'||t.type==='Vendor Credit Note') return s + t.amount;
+      // Manual entries
+      if(t.type==='Manual Given') return s - t.amount;   // you gave money → reduces balance
+      if(t.type==='Manual Received') return s + t.amount; // you received money → increases balance
       return s;
     }, 0);
   };
@@ -149,6 +152,8 @@ const PartyLedger: React.FC = () => {
           if(t.type==='Sale') running+=t.amount;
           else if(t.type==='Purchase Bill') running-=t.amount;
           else if(t.type==='Vendor Payment'||t.type==='Vendor Credit Note') running+=t.amount;
+          else if(t.type==='Manual Given') running-=t.amount;
+          else if(t.type==='Manual Received') running+=t.amount;
           else running-=t.amount;
           return `<tr>
             <td>${formatDate(t.transaction_date)}</td>
@@ -183,6 +188,8 @@ const PartyLedger: React.FC = () => {
     if(t.type==='Sale') runBal+=t.amount;
     else if(t.type==='Purchase Bill') runBal-=t.amount;
     else if(t.type==='Vendor Payment'||t.type==='Vendor Credit Note') runBal+=t.amount;
+    else if(t.type==='Manual Given') runBal-=t.amount;
+    else if(t.type==='Manual Received') runBal+=t.amount;
     else runBal-=t.amount; // Payment, Return, Adjustment, Credit Note
     return { ...t, runningBalance: runBal };
   });
@@ -262,6 +269,8 @@ const PartyLedger: React.FC = () => {
               <div className="flex gap-2">
                 <button onClick={()=>{ setTxnForm({...emptyTxn,party_name:selectedParty.name,type:selectedParty.party_type==='Vendor'?'Purchase Bill':'Sale'}); setEditingTxn(null); setShowTxnModal(true); }}
                   className="flex items-center gap-1 px-3 py-1.5 bg-violet-600 text-white rounded-lg text-sm hover:bg-violet-700"><Plus size={13}/> Add Entry</button>
+                <button onClick={()=>{ setTxnForm({...emptyTxn,party_name:selectedParty.name,type:'Manual Given'}); setEditingTxn(null); setShowTxnModal(true); }}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-amber-500 text-white rounded-lg text-sm hover:bg-amber-600">✏️ Manual Entry</button>
                 <button onClick={()=>exportPDF(selectedParty)} className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"><Download size={13}/> PDF</button>
               </div>
             </div>
@@ -386,29 +395,58 @@ const PartyLedger: React.FC = () => {
               <h2 className="font-bold text-gray-800">{editingTxn?'Edit Entry':'New Entry — '+(selectedParty?.name||'')}</h2>
               <button onClick={()=>{setShowTxnModal(false);setEditingTxn(null);}} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center"><X size={14}/></button>
             </div>
-            <div className="p-5 space-y-3">
-              <div><label className="block text-xs font-medium text-gray-700 mb-1">Type</label>
-              <div className="grid grid-cols-3 gap-1">
-                {(selectedParty?.party_type==='Vendor' ? vendorTxnTypes : customerTxnTypes).map(t=>(
-                  <button key={t} onClick={()=>setTxnForm({...txnForm,type:t})}
-                    className={`py-1.5 rounded-lg text-xs font-medium transition-colors ${txnForm.type===t?'text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                    style={txnForm.type===t?{background:txnStyle[t]?.color||'#7C3AED'}:{}}>
-                    {t}
-                  </button>
-                ))}
-              </div></div>
+            <div className="p-5 space-y-3 max-h-[70vh] overflow-y-auto">
+              {/* Toggle: Bill Entry vs Manual Entry */}
+              <div className="flex gap-2">
+                <button onClick={()=>setTxnForm({...txnForm,type:selectedParty?.party_type==='Vendor'?'Purchase Bill':'Sale'})}
+                  className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition-colors ${!['Manual Given','Manual Received'].includes(txnForm.type)?'bg-violet-600 text-white border-violet-600':'bg-gray-50 text-gray-600 border-gray-200'}`}>
+                  📋 Bill / Transaction
+                </button>
+                <button onClick={()=>setTxnForm({...txnForm,type:'Manual Given'})}
+                  className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition-colors ${['Manual Given','Manual Received'].includes(txnForm.type)?'bg-amber-500 text-white border-amber-500':'bg-gray-50 text-gray-600 border-gray-200'}`}>
+                  ✏️ Manual Entry
+                </button>
+              </div>
+              {/* Manual Entry options */}
+              {['Manual Given','Manual Received'].includes(txnForm.type)&&(
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+                  <p className="text-xs font-semibold text-amber-700">✏️ Manual Cash / Loan Entry — no bill needed</p>
+                  <div className="flex gap-2">
+                    <button onClick={()=>setTxnForm({...txnForm,type:'Manual Given'})}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${txnForm.type==='Manual Given'?'bg-red-500 text-white border-red-500':'bg-gray-50 text-gray-600 border-gray-200'}`}>
+                      💸 I Gave / Paid
+                    </button>
+                    <button onClick={()=>setTxnForm({...txnForm,type:'Manual Received'})}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${txnForm.type==='Manual Received'?'bg-green-500 text-white border-green-500':'bg-gray-50 text-gray-600 border-gray-200'}`}>
+                      💰 I Received
+                    </button>
+                  </div>
+                </div>
+              )}
+              {/* Regular type selector */}
+              {!['Manual Given','Manual Received'].includes(txnForm.type)&&(
+                <div><label className="block text-xs font-medium text-gray-700 mb-1">Type</label>
+                <div className="grid grid-cols-3 gap-1">
+                  {(selectedParty?.party_type==='Vendor' ? vendorTxnTypes : customerTxnTypes).map(t=>(
+                    <button key={t} onClick={()=>setTxnForm({...txnForm,type:t})}
+                      className={`py-1.5 rounded-lg text-xs font-medium transition-colors ${txnForm.type===t?'text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                      style={txnForm.type===t?{background:txnStyle[t]?.color||'#7C3AED'}:{}}>
+                      {t}
+                    </button>
+                  ))}
+                </div></div>
+              )}
               <div><label className="block text-xs font-medium text-gray-700 mb-1">Date</label>
               <input type="date" value={txnForm.transaction_date} onChange={e=>setTxnForm({...txnForm,transaction_date:e.target.value})} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"/></div>
               <div><label className="block text-xs font-medium text-gray-700 mb-1">Amount (₹)</label>
-              <input type="number" value={txnForm.amount||''} onChange={e=>setTxnForm({...txnForm,amount:Number(e.target.value)})} placeholder="e.g. 5000" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"/>
+              <input type="number" value={txnForm.amount||''} onChange={e=>setTxnForm({...txnForm,amount:Number(e.target.value)})} placeholder="e.g. 181000" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"/>
               <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                {[500,1000,2000,5000,10000].map(a=><button key={a} onClick={()=>setTxnForm({...txnForm,amount:a})} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-lg text-xs hover:bg-violet-100 hover:text-violet-700">₹{a.toLocaleString('en-IN')}</button>)}
+                {[1000,5000,10000,50000,100000,200000].map(a=><button key={a} onClick={()=>setTxnForm({...txnForm,amount:a})} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-lg text-xs hover:bg-violet-100 hover:text-violet-700">₹{a.toLocaleString('en-IN')}</button>)}
               </div></div>
-              <div><label className="block text-xs font-medium text-gray-700 mb-1">Description</label>
-              <input value={txnForm.description} onChange={e=>setTxnForm({...txnForm,description:e.target.value})} placeholder="e.g. Goods sold, Payment received..." className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"/></div>
-              <div><label className="block text-xs font-medium text-gray-700 mb-1">Reference</label>
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Description *</label>
+              <input value={txnForm.description} onChange={e=>setTxnForm({...txnForm,description:e.target.value})} placeholder="e.g. Cash loan given, Labour payment, Advance for work..." className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"/></div>
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Reference (optional)</label>
               <input value={txnForm.reference} onChange={e=>setTxnForm({...txnForm,reference:e.target.value})} placeholder="e.g. INV-005, PAY-003" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"/></div>
-              {/* Live balance preview */}
               {txnForm.amount>0 && selectedParty && (
                 <div className="p-2.5 bg-violet-50 rounded-xl text-xs">
                   <span className="text-gray-500">Balance after this entry: </span>
@@ -418,8 +456,9 @@ const PartyLedger: React.FC = () => {
                       const newBal = txnForm.type==='Sale' ? cur+txnForm.amount
                         : txnForm.type==='Purchase Bill' ? cur-txnForm.amount
                         : (txnForm.type==='Vendor Payment'||txnForm.type==='Vendor Credit Note') ? cur+txnForm.amount
+                        : txnForm.type==='Manual Received' ? cur+txnForm.amount
                         : cur-txnForm.amount;
-                      return `₹${Math.abs(newBal).toLocaleString('en-IN')} ${newBal>0?'Dr (receivable)':'Cr (advance)'}`;
+                      return `₹${Math.abs(newBal).toLocaleString('en-IN')} ${newBal>0?'Dr (receivable)':'Cr (payable)'}`;
                     })()}
                   </span>
                 </div>
