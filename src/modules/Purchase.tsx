@@ -187,6 +187,11 @@ const Purchase: React.FC = () => {
     return dueAmt > 0 && b.due_date && new Date(b.due_date) < new Date();
   }).length;
 
+  // Pending cheques — issued but not yet cleared by bank
+  const pendingCheques = payments.filter(p=>p.payment_mode==='Cheque'&&p.cheque_status==='Issued');
+  const pendingChequeAmount = pendingCheques.reduce((s,p)=>s+p.amount,0);
+  const pendingChequeCount = pendingCheques.length;
+
   // ── Keyboard navigation for the items table ─────────────────────────────
   // Lets the user press Enter to jump field-to-field (Name→HSN→Qty→Unit→
   // Rate→Disc%→Tax%) instead of reaching for the mouse. Pressing Enter on the
@@ -890,11 +895,21 @@ If a field is not visible on the invoice, use empty string "" for text fields or
     <div className="space-y-6">
       <AnimatePresence>{toast&&<motion.div initial={{opacity:0,y:-20}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-20}} className={`fixed top-5 right-5 z-50 px-5 py-3 rounded-xl shadow-lg text-white text-sm font-medium ${toast.type==='success'?'bg-green-600':'bg-red-500'}`}>{toast.msg}</motion.div>}</AnimatePresence>
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
         <StatCard title="Total Bills" value={loading?'...':String(filteredBills.length)} change="+3" positive icon={<ShoppingCart size={20}/>} color="#2563EB" bg="#DBEAFE" delay={0.05}/>
         <StatCard title="Total Purchased" value={loading?'...':'₹'+totalBills.toLocaleString('en-IN')} change="+12%" positive icon={<IndianRupee size={20}/>} color="#7C3AED" bg="#EDE9FE" delay={0.1}/>
         <StatCard title="Amount Due" value={loading?'...':'₹'+totalDue.toLocaleString('en-IN')} change="" positive={false} icon={<AlertCircle size={20}/>} color="#DC2626" bg="#FEE2E2" delay={0.15}/>
         <StatCard title="Overdue" value={loading?'...':String(overdueBills)} change="" positive={false} icon={<TrendingDown size={20}/>} color="#D97706" bg="#FEF3C7" delay={0.2}/>
+        <div className="bg-white rounded-2xl p-4 shadow-sm border-2 border-amber-200 cursor-pointer hover:border-amber-400 transition-colors" onClick={()=>{setSearchText('');setFilterStatus('');setFilterVendor('');}} title="Click to view all bills with pending cheques">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-gray-500">🏦 Cheques Pending</span>
+            <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center">
+              <span className="text-sm">🏦</span>
+            </div>
+          </div>
+          <p className="text-xl font-black text-amber-700">{loading?'...':'₹'+pendingChequeAmount.toLocaleString('en-IN')}</p>
+          <p className="text-[11px] text-amber-600 mt-0.5">{loading?'':pendingChequeCount} cheque{pendingChequeCount!==1?'s':''} issued · not yet cleared</p>
+        </div>
       </div>
 
       <div className="flex gap-2 flex-wrap">
@@ -904,6 +919,35 @@ If a field is not visible on the invoice, use empty string "" for text fields or
       </div>
 
       {/* BILLS */}
+      {/* Pending Cheques Panel */}
+      {pendingChequeCount>0&&tab==='bills'&&(
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-bold text-amber-800 text-sm">🏦 Cheques Issued — Pending Bank Clearance ({pendingChequeCount})</h3>
+            <span className="text-sm font-black text-amber-700">Total: ₹{pendingChequeAmount.toLocaleString('en-IN')}</span>
+          </div>
+          <div className="space-y-2">
+            {pendingCheques.map(p=>{
+              const bill = bills.find(b=>b.id===p.bill_id);
+              return(
+                <div key={p.id} className="flex items-center justify-between bg-white rounded-xl px-3 py-2 shadow-sm border border-amber-100">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-semibold text-gray-700">Chq #{p.cheque_no||'—'}</span>
+                      <span className="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-medium">Issued</span>
+                      {p.cheque_date&&<span className="text-[10px] text-gray-500">Date: {formatDate(p.cheque_date)}</span>}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5">{p.vendor_name} {bill?`· Bill: ${bill.bill_number}`:''}</p>
+                    <p className="text-[10px] text-gray-400">Payment Date: {formatDate(p.payment_date)}</p>
+                  </div>
+                  <span className="text-sm font-bold text-amber-700">₹{p.amount.toLocaleString('en-IN')}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {tab==='bills' && (
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
