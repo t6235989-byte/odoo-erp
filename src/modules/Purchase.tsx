@@ -699,7 +699,8 @@ If a field is not visible on the invoice, use empty string "" for text fields or
       await syncPaymentToLedger({ ...payForm, id: editingPayment.id });
       showToast('Payment updated!','success');
     } else {
-      const { data, error } = await supabase.from('purchase_payments').insert([payForm]).select().single();
+      const payData = { ...payForm, cheque_date: payForm.cheque_date||null, clearance_date: payForm.clearance_date||null };
+      const { data, error } = await supabase.from('purchase_payments').insert([payData]).select().single();
       if (error) { showToast('Failed to record payment: '+error.message,'error'); setSaving(false); return; }
       const updatedPayments = [...payments, data];
       await recalcBillPaidStatus(payForm.bill_id, updatedPayments);
