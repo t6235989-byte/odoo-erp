@@ -18,7 +18,7 @@ type BillItem = {
   amount_before_tax: number; tax_percent: number; tax_amount: number;
   total_price: number; add_to_inventory: boolean;
 };
-type Payment = { id?: string; bill_id: string; vendor_name: string; payment_date: string; amount: number; note: string; };
+type Payment = { id?: string; bill_id: string; vendor_name: string; payment_date: string; amount: number; note: string; payment_mode: string; cheque_no: string; cheque_date: string; clearance_date: string; cheque_status: string; };
 type CreditNote = {
   id?: string; bill_id?: string; credit_note_number: string; vendor_name: string;
   vendor_gstin?: string; credit_note_date: string; reason?: string; total_amount: number;
@@ -93,7 +93,7 @@ const Purchase: React.FC = () => {
   const [showItemsFor, setShowItemsFor] = useState<string|null>(null);
   const [billForm, setBillForm] = useState<Bill>(emptyBill);
   const [vendorForm, setVendorForm] = useState<Vendor>(emptyVendor);
-  const [payForm, setPayForm] = useState<Payment>({ bill_id:'', vendor_name:'', payment_date:new Date().toISOString().split('T')[0], amount:0, note:'' });
+  const [payForm, setPayForm] = useState<Payment>({ bill_id:'', vendor_name:'', payment_date:new Date().toISOString().split('T')[0], amount:0, note:'', payment_mode:'Cash', cheque_no:'', cheque_date:'', clearance_date:'', cheque_status:'N/A' });
   const [items, setItems] = useState<BillItem[]>([emptyItem()]);
   const [editingBill, setEditingBill] = useState<Bill|null>(null);
   const [editingVendor, setEditingVendor] = useState<Vendor|null>(null);
@@ -141,10 +141,11 @@ const Purchase: React.FC = () => {
         // "167825" or "cheque" finds the bill via its payment record.
         const billPayments = payments.filter(p=>p.bill_id===b.id);
         const paymentNotes = billPayments.map(p=>p.note).filter(Boolean).join(' ');
+        const billItemsText = billItems.filter((i:any)=>i.bill_id===b.id).map((i:any)=>[i.product_name,i.description,i.hsn_code].filter(Boolean).join(' ')).join(' ');
         const haystack = [
           b.bill_number, b.invoice_no, b.vendor_name, b.vendor_gstin, b.notes,
           String(b.total_amount), String(Math.round(b.total_amount)),
-          paymentNotes,
+          paymentNotes, billItemsText,
         ].filter(Boolean).join(' ').toLowerCase();
         if (!haystack.includes(q)) return false;
       }
@@ -450,14 +451,10 @@ const Purchase: React.FC = () => {
       if (!proceed) return;
     }
     setSaving(true);
-    // If vendor phone entered, update vendors table so ALL bills for this vendor show the phone
     if (billForm.vendor_phone?.trim() && billForm.vendor_name?.trim()) {
       const existingVendor = vendors.find(v => vendorNameMatches(v.name, billForm.vendor_name));
-      if (existingVendor?.id) {
-        await supabase.from('vendors').update({ phone: billForm.vendor_phone.trim() }).eq('id', existingVendor.id);
-      } else {
-        await supabase.from('vendors').insert([{ name: billForm.vendor_name, phone: billForm.vendor_phone.trim(), gstin: billForm.vendor_gstin || '' }]);
-      }
+      if (existingVendor?.id) { await supabase.from('vendors').update({ phone: billForm.vendor_phone.trim() }).eq('id', existingVendor.id); }
+      else { await supabase.from('vendors').insert([{ name: billForm.vendor_name, phone: billForm.vendor_phone.trim(), gstin: billForm.vendor_gstin || '' }]); }
     }
     const total = items.filter(i=>i.product_name).reduce((s,i)=>s+i.total_price,0);
     const payload = { ...billForm, total_amount: Math.round(total) };
@@ -692,6 +689,9 @@ If a field is not visible on the invoice, use empty string "" for text fields or
     if (editingPayment?.id) {
       const { error } = await supabase.from('purchase_payments').update({
         payment_date: payForm.payment_date, amount: payForm.amount, note: payForm.note,
+        payment_mode: payForm.payment_mode, cheque_no: payForm.cheque_no||null,
+        cheque_date: payForm.cheque_date||null, clearance_date: payForm.clearance_date||null,
+        cheque_status: payForm.cheque_status,
       }).eq('id', editingPayment.id);
       if (error) { showToast('Failed to update payment: '+error.message,'error'); setSaving(false); return; }
       const updatedPayments = payments.map(p => p.id===editingPayment.id ? {...p, ...payForm} : p);
@@ -989,7 +989,7 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                           {due>0&&<p className="text-xs text-red-500 font-bold">Due: ₹{due.toLocaleString('en-IN')}</p>}
                         </div>
                         <div className="flex gap-1 items-center flex-wrap">
-                          {bill.status!=='Paid'&&<button onClick={()=>{ setEditingPayment(null); setPayForm({bill_id:bill.id!,vendor_name:bill.vendor_name,payment_date:new Date().toISOString().split('T')[0],amount:due,note:''}); setShowPayModal(true); }} className="px-2 py-1 bg-green-50 text-green-600 rounded-lg text-xs hover:bg-green-100">💰 Pay</button>}
+                          {bill.status!=='Paid'&&<button onClick={()=>{ setEditingPayment(null); setPayForm({bill_id:bill.id!,vendor_name:bill.vendor_name,payment_date:new Date().toISOString().split('T')[0],amount:due,note:'',payment_mode:'Cash',cheque_no:'',cheque_date:'',clearance_date:'',cheque_status:'N/A'}); setShowPayModal(true); }} className="px-2 py-1 bg-green-50 text-green-600 rounded-lg text-xs hover:bg-green-100">💰 Pay</button>}
                           <button onClick={()=>printBill(bill)} className="px-2 py-1 bg-violet-50 text-violet-600 rounded-lg text-xs hover:bg-violet-100 flex items-center gap-1"><FileText size={11}/> PDF</button>
                           <button onClick={()=>setShowItemsFor(showItemsFor===bill.id?null:bill.id!)} className="w-7 h-7 bg-gray-50 rounded-lg flex items-center justify-center text-gray-400">
                             {showItemsFor===bill.id?<ChevronUp size={13}/>:<ChevronDown size={13}/>}
@@ -1038,7 +1038,10 @@ If a field is not visible on the invoice, use empty string "" for text fields or
                             <p className="text-xs font-bold text-gray-600 mb-1">💰 Payments:</p>
                             {bPays.map((p,i)=>(
                               <div key={i} className="flex justify-between items-center text-xs py-1 border-b border-gray-100">
-                                <span className="text-gray-500">{formatDate(p.payment_date)} {p.note?`· ${p.note}`:''}</span>
+                                <span className="text-gray-500">{formatDate(p.payment_date)} {p.payment_mode?`· ${p.payment_mode}`:''}{p.cheque_no?` #${p.cheque_no}`:''}{p.cheque_date?` (Chq: ${formatDate(p.cheque_date)})`:''}{p.clearance_date?` ✅ Cleared: ${formatDate(p.clearance_date)}`:''}</span>
+                                {p.payment_mode==='Cheque'&&p.cheque_status&&p.cheque_status!=='N/A'&&(
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${p.cheque_status==='Cleared'?'bg-green-100 text-green-700':p.cheque_status==='Bounced'?'bg-red-100 text-red-700':p.cheque_status==='Cancelled'?'bg-gray-100 text-gray-600':'bg-yellow-100 text-yellow-700'}`}>{p.cheque_status}</span>
+                                )}
                                 <div className="flex items-center gap-2">
                                   <span className="font-bold text-green-600">₹{p.amount.toLocaleString('en-IN')}</span>
                                   <button onClick={()=>{ setEditingPayment(p); setPayForm({...p}); setShowPayModal(true); }} className="w-5 h-5 bg-blue-50 rounded flex items-center justify-center text-blue-500"><Edit2 size={9}/></button>
@@ -1505,12 +1508,43 @@ If a field is not visible on the invoice, use empty string "" for text fields or
         <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onClick={e=>{if(e.target===e.currentTarget){setShowPayModal(false);setEditingPayment(null);}}}>
           <motion.div initial={{scale:0.9,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0.9,opacity:0}} className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
             <div className="flex items-center justify-between p-5 border-b border-gray-100"><h2 className="font-bold text-gray-800">💰 {editingPayment?'Edit Payment':'Pay Bill'} — {payForm.vendor_name}</h2><button onClick={()=>{setShowPayModal(false);setEditingPayment(null);}} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center"><X size={14}/></button></div>
-            <div className="p-5 space-y-3">
-              <div><label className="block text-xs font-medium text-gray-700 mb-1">Date</label><input type="date" value={payForm.payment_date} onChange={e=>setPayForm({...payForm,payment_date:e.target.value})} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"/></div>
-              <div><label className="block text-xs font-medium text-gray-700 mb-1">Amount (₹)</label>
-              <input type="number" value={payForm.amount||''} onChange={e=>setPayForm({...payForm,amount:Number(e.target.value)})} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"/>
-              <div className="flex gap-1.5 mt-1.5 flex-wrap">{[500,1000,2000,5000,10000].map(a=><button key={a} onClick={()=>setPayForm({...payForm,amount:a})} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-lg text-xs hover:bg-blue-100 hover:text-blue-700">₹{a.toLocaleString('en-IN')}</button>)}</div></div>
-              <div><label className="block text-xs font-medium text-gray-700 mb-1">Note (Payment method)</label><input value={payForm.note} onChange={e=>setPayForm({...payForm,note:e.target.value})} placeholder="e.g. CHEQUE No, UPI, Cash" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"/></div>
+            <div className="p-5 space-y-3 max-h-[70vh] overflow-y-auto">
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="block text-xs font-medium text-gray-700 mb-1">Payment Date</label><input type="date" value={payForm.payment_date} onChange={e=>setPayForm({...payForm,payment_date:e.target.value})} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"/></div>
+                <div><label className="block text-xs font-medium text-gray-700 mb-1">Amount (₹)</label><input type="number" value={payForm.amount||''} onChange={e=>setPayForm({...payForm,amount:Number(e.target.value)})} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"/></div>
+              </div>
+              <div className="flex gap-1.5 flex-wrap">{[500,1000,2000,5000,10000].map(a=><button key={a} onClick={()=>setPayForm({...payForm,amount:a})} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-lg text-xs hover:bg-blue-100 hover:text-blue-700">₹{a.toLocaleString('en-IN')}</button>)}</div>
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Payment Mode</label>
+                <div className="flex gap-1.5 flex-wrap">
+                  {['Cash','Cheque','UPI','NEFT','RTGS'].map(m=>(
+                    <button key={m} onClick={()=>setPayForm({...payForm,payment_mode:m,cheque_status:m==='Cheque'?'Issued':'N/A',cheque_no:'',cheque_date:'',clearance_date:''})}
+                      className={`px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${payForm.payment_mode===m?'bg-blue-600 text-white border-blue-600':'bg-gray-50 text-gray-600 border-gray-200 hover:border-blue-300'}`}>{m}</button>
+                  ))}
+                </div>
+              </div>
+              {payForm.payment_mode==='Cheque'&&(
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2.5">
+                  <p className="text-xs font-semibold text-amber-700">🏦 Cheque Details</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><label className="block text-xs font-medium text-gray-700 mb-1">Cheque No.</label><input value={payForm.cheque_no} onChange={e=>setPayForm({...payForm,cheque_no:e.target.value})} placeholder="e.g. 167825" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"/></div>
+                    <div><label className="block text-xs font-medium text-gray-700 mb-1">Cheque Date</label><input type="date" value={payForm.cheque_date} onChange={e=>setPayForm({...payForm,cheque_date:e.target.value})} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"/></div>
+                  </div>
+                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Cheque Status</label>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {['Issued','Cleared','Bounced','Cancelled'].map(s=>(
+                        <button key={s} onClick={()=>setPayForm({...payForm,cheque_status:s})}
+                          className={`px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${payForm.cheque_status===s?(s==='Cleared'?'bg-green-600 text-white border-green-600':s==='Bounced'?'bg-red-500 text-white border-red-500':s==='Cancelled'?'bg-gray-500 text-white border-gray-500':'bg-yellow-500 text-white border-yellow-500'):'bg-gray-50 text-gray-600 border-gray-200'}`}>{s}</button>
+                      ))}
+                    </div>
+                  </div>
+                  {payForm.cheque_status==='Cleared'&&(
+                    <div><label className="block text-xs font-medium text-gray-700 mb-1">Clearance Date (actual bank deduction)</label><input type="date" value={payForm.clearance_date} onChange={e=>setPayForm({...payForm,clearance_date:e.target.value})} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300"/></div>
+                  )}
+                  {payForm.cheque_status==='Bounced'&&<div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700">⚠️ Bounced cheque — bill remains unpaid. Update to Cleared once re-issued.</div>}
+                  {payForm.cheque_status==='Cancelled'&&<div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-600">🚫 Cancelled — wrong fill or void cheque. Bill remains unpaid.</div>}
+                </div>
+              )}
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Note (optional)</label><input value={payForm.note} onChange={e=>setPayForm({...payForm,note:e.target.value})} placeholder="Any extra note..." className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"/></div>
             </div>
             <div className="flex justify-end gap-2 p-5 border-t border-gray-100">
               <button onClick={()=>{setShowPayModal(false);setEditingPayment(null);}} className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600">Cancel</button>
