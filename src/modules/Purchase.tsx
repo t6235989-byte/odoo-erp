@@ -679,7 +679,7 @@ If a field is not visible on the invoice, use empty string "" for text fields or
     if (!bill) return;
     const validPayments = allPayments.filter(p=>
       p.bill_id===billId &&
-      !(p.payment_mode==='Cheque' && (p.cheque_status==='Bounced' || p.cheque_status==='Cancelled'))
+      !(p.payment_mode==='Cheque' && (p.cheque_status==='Bounced' || p.cheque_status==='Cancelled' || p.cheque_status==='Issued'))
     );
     const newPaid = validPayments.reduce((s,p)=>s+p.amount,0);
     const newStatus = newPaid>=bill.total_amount && bill.total_amount>0 ? 'Paid' : newPaid>0 ? 'Partial' : 'Unpaid';
