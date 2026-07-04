@@ -674,10 +674,15 @@ If a field is not visible on the invoice, use empty string "" for text fields or
 
   // Recompute a bill's paid_amount/status from the actual sum of its payments
   // (safer than incrementing/decrementing, which can drift after edits).
+  // Bounced and Cancelled cheques are excluded — they don't count as payment.
   const recalcBillPaidStatus = async (billId: string, allPayments: Payment[]) => {
     const bill = bills.find(b=>b.id===billId);
     if (!bill) return;
-    const newPaid = allPayments.filter(p=>p.bill_id===billId).reduce((s,p)=>s+p.amount,0);
+    const validPayments = allPayments.filter(p=>
+      p.bill_id===billId &&
+      !(p.payment_mode==='Cheque' && (p.cheque_status==='Bounced' || p.cheque_status==='Cancelled'))
+    );
+    const newPaid = validPayments.reduce((s,p)=>s+p.amount,0);
     const newStatus = newPaid>=bill.total_amount && bill.total_amount>0 ? 'Paid' : newPaid>0 ? 'Partial' : 'Unpaid';
     const { error } = await supabase.from('purchase_bills').update({paid_amount:newPaid,status:newStatus}).eq('id',billId);
     if (error) showToast('Payment saved, but failed to update bill totals: '+error.message,'error');
