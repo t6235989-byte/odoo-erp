@@ -1,9 +1,21 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, FileText, Table, CheckCircle, Loader, Database, Shield, Clock } from 'lucide-react';
+import { Download, FileText, Table, CheckCircle, Loader, Database, Shield, Clock, Package } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { formatDate, formatDateTime } from '../utils/cn';
 import * as XLSX from 'xlsx';
+
+// Load JSZip from CDN dynamically — no npm install needed
+const loadJSZip = (): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    if ((window as any).JSZip) { resolve((window as any).JSZip); return; }
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    script.onload = () => resolve((window as any).JSZip);
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+};
 
 type BackupStatus = 'idle' | 'fetching' | 'done' | 'error';
 type RestoreRowState = { row: any; tableKey: string; tableLabel: string; status: 'new'|'exists'|'conflict'; existingRow?: any };
@@ -35,11 +47,15 @@ const tables = [
   { key: 'work_tasks',        label: 'Work Tasks',          icon: '📝', color: '#059669' },
   { key: 'products_online',   label: 'eCommerce Products',  icon: '🛍️', color: '#D97706' },
   { key: 'online_orders',     label: 'Online Orders',       icon: '🛒', color: '#2563EB' },
+  { key: 'contacts',          label: 'Contacts',            icon: '📒', color: '#0891B2' },
+  { key: 'contact_history',   label: 'Contact History',     icon: '📋', color: '#0891B2' },
 ];
 
 const Backup: React.FC = () => {
   const [excelStatus, setExcelStatus] = useState<BackupStatus>('idle');
   const [pdfStatus, setPdfStatus] = useState<BackupStatus>('idle');
+  const [zipStatus, setZipStatus] = useState<BackupStatus>('idle');
+  const [zipProgress, setZipProgress] = useState('');
   const [exportError, setExportError] = useState<string|null>(null);
   const [progress, setProgress] = useState<string[]>([]);
   const [selectedTables, setSelectedTables] = useState<string[]>(tables.map(t=>t.key));
@@ -159,6 +175,97 @@ const Backup: React.FC = () => {
   };
 
   // ── Excel Export ────────────────────────────────────────────────────────
+  // ── Download Everything as ZIP ─────────────────────────────────────────
+  const downloadAllZip = async () => {
+    setZipStatus('fetching');
+    setZipProgress('Fetching all data...');
+    setExportError(null);
+    try {
+      const JSZip = await loadJSZip();
+      const zip = new JSZip();
+      const date = new Date().toISOString().split('T')[0];
+
+      // 1. Excel file
+      setZipProgress('📊 Creating Excel backup...');
+      const { data } = await fetchAllData();
+      const wb = XLSX.utils.book_new();
+      const summaryData = [
+        ['Punjab Hitech Agro Machinery Works — Full Backup'],
+        ['Generated:', new Date().toLocaleString('en-IN')],[''],
+        ['Sheet', 'Records'],
+        ...tables.map(t=>[t.label, data[t.key]?.length||0])
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryData), 'Summary');
+      const usedNames = new Set<string>();
+      for(const table of tables) {
+        const rows = data[table.key];
+        let name = table.label.replace(/[:\\/?*[\]]/g,'').slice(0,31).trim()||table.key.slice(0,31);
+        let s=1; while(usedNames.has(name)){name=`${name.slice(0,28)}_${s++}`;} usedNames.add(name);
+        if(!rows||rows.length===0){XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([[`No data`]]),name);continue;}
+        XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),name);
+      }
+      const excelBuffer = XLSX.write(wb, { bookType:'xlsx', type:'array' });
+      zip.file(`Data_Backup_${date}.xlsx`, excelBuffer);
+
+      // 2. Contact documents from Supabase storage
+      setZipProgress('📎 Fetching contact documents...');
+      const { data: contactDocs } = await supabase.from('contact_documents').select('*');
+      if (contactDocs && contactDocs.length > 0) {
+        const docsFolder = zip.folder('Contact_Documents');
+        for (const doc of contactDocs) {
+          try {
+            setZipProgress(`📎 Downloading: ${doc.doc_name}...`);
+            const res = await fetch(doc.file_url);
+            if (res.ok) {
+              const blob = await res.blob();
+              const ext = doc.file_url.split('.').pop()?.split('?')[0] || 'jpg';
+              const safeName = doc.doc_name.replace(/[^a-zA-Z0-9_\-. ]/g,'_');
+              docsFolder?.file(`${safeName}.${ext}`, blob);
+            }
+          } catch(e) { console.warn('Could not download:', doc.doc_name); }
+        }
+      }
+
+      // 3. Employee documents from Supabase storage
+      setZipProgress('📎 Fetching employee documents...');
+      const { data: empDocs } = await supabase.from('employee_documents').select('*');
+      if (empDocs && empDocs.length > 0) {
+        const empFolder = zip.folder('Employee_Documents');
+        for (const doc of empDocs) {
+          try {
+            setZipProgress(`📎 Downloading: ${doc.doc_name}...`);
+            const res = await fetch(doc.file_url);
+            if (res.ok) {
+              const blob = await res.blob();
+              const ext = doc.file_url.split('.').pop()?.split('?')[0] || 'jpg';
+              const safeName = doc.doc_name.replace(/[^a-zA-Z0-9_\-. ]/g,'_');
+              empFolder?.file(`${safeName}.${ext}`, blob);
+            }
+          } catch(e) { console.warn('Could not download:', doc.doc_name); }
+        }
+      }
+
+      // 4. Generate ZIP
+      setZipProgress('📦 Creating ZIP file...');
+      const zipBlob = await zip.generateAsync({ type:'blob', compression:'DEFLATE' });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `PunjabHitech_FullBackup_${date}.zip`;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      const now = new Date().toLocaleString('en-IN');
+      localStorage.setItem('last_backup', now);
+      setLastBackup(now);
+      setZipProgress('✅ Done!');
+      setZipStatus('done');
+    } catch(e: any) {
+      setExportError(e?.message || 'ZIP export failed');
+      setZipStatus('error');
+    }
+  };
+
   const exportExcel = async () => {
     setExcelStatus('fetching');
     setExportError(null);
@@ -341,6 +448,25 @@ const Backup: React.FC = () => {
             <span className="text-violet-200">Last backup: <span className="text-white font-medium">{lastBackup}</span></span>
           </div>
         )}
+      </div>
+
+      {/* ── Download Everything Button ── */}
+      <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl p-5 shadow-lg">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0">📦</div>
+          <div className="flex-1">
+            <h3 className="font-bold text-white text-lg">Download Everything as ZIP</h3>
+            <p className="text-violet-200 text-xs mt-0.5">Excel data + all contact & employee documents in one ZIP file</p>
+            {zipStatus==='fetching' && <p className="text-yellow-300 text-xs mt-1 animate-pulse">{zipProgress}</p>}
+          </div>
+          <button onClick={downloadAllZip} disabled={zipStatus==='fetching'}
+            className="flex items-center gap-2 px-5 py-3 bg-white text-violet-700 rounded-xl font-bold text-sm hover:bg-violet-50 transition-colors disabled:opacity-60 flex-shrink-0">
+            {zipStatus==='fetching'?<><Loader size={16} className="animate-spin text-violet-600"/>Working...</>
+            :zipStatus==='done'?<><CheckCircle size={16} className="text-green-600"/>Download Again</>
+            :zipStatus==='error'?<>⚠️ Retry</>
+            :<><Package size={16}/>Download ZIP</>}
+          </button>
+        </div>
       </div>
 
       {/* Export buttons */}
