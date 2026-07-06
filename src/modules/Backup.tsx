@@ -209,7 +209,7 @@ const Backup: React.FC = () => {
 
       // 2. Contact documents from Supabase storage
       setZipProgress('📎 Fetching contact documents...');
-      const { data: contactDocs } = await supabase.from('contact_documents').select('*');
+      const { data: contactDocs } = await supabase.from('contact_documents').select('*, contacts(name)');
       if (contactDocs && contactDocs.length > 0) {
         const docsFolder = zip.folder('Contact_Documents');
         for (const doc of contactDocs) {
@@ -219,8 +219,10 @@ const Backup: React.FC = () => {
             if (res.ok) {
               const blob = await res.blob();
               const ext = doc.file_url.split('.').pop()?.split('?')[0] || 'jpg';
-              const safeName = doc.doc_name.replace(/[^a-zA-Z0-9_\-. ]/g,'_');
-              docsFolder?.file(`${safeName}.${ext}`, blob);
+              const contactName = (doc.contacts?.name || 'Unknown').replace(/[^a-zA-Z0-9_\-. ]/g,'_');
+              const docName = doc.doc_name.replace(/[^a-zA-Z0-9_\-. ]/g,'_');
+              // Filename: ContactName — DocumentName.jpg
+              docsFolder?.file(`${contactName} — ${docName}.${ext}`, blob);
             }
           } catch(e) { console.warn('Could not download:', doc.doc_name); }
         }
@@ -228,7 +230,7 @@ const Backup: React.FC = () => {
 
       // 3. Employee documents from Supabase storage
       setZipProgress('📎 Fetching employee documents...');
-      const { data: empDocs } = await supabase.from('employee_documents').select('*');
+      const { data: empDocs } = await supabase.from('employee_documents').select('*, employees(name)');
       if (empDocs && empDocs.length > 0) {
         const empFolder = zip.folder('Employee_Documents');
         for (const doc of empDocs) {
@@ -238,8 +240,10 @@ const Backup: React.FC = () => {
             if (res.ok) {
               const blob = await res.blob();
               const ext = doc.file_url.split('.').pop()?.split('?')[0] || 'jpg';
-              const safeName = doc.doc_name.replace(/[^a-zA-Z0-9_\-. ]/g,'_');
-              empFolder?.file(`${safeName}.${ext}`, blob);
+              const empName = (doc.employees?.name || 'Unknown').replace(/[^a-zA-Z0-9_\-. ]/g,'_');
+              const docName = doc.doc_name.replace(/[^a-zA-Z0-9_\-. ]/g,'_');
+              // Filename: EmployeeName — DocumentName.jpg
+              empFolder?.file(`${empName} — ${docName}.${ext}`, blob);
             }
           } catch(e) { console.warn('Could not download:', doc.doc_name); }
         }
