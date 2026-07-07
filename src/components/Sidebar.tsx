@@ -1,11 +1,10 @@
 import React from 'react';
-import { motion } from 'framer-motion';
-import {
+import { FileText as QuotationIcon, motion } from 'framer-motion';
+import { FileText as QuotationIcon,
   Clock as ClockIcon,
   ShoppingCart as PurchaseIcon,
   BookOpen as LedgerIcon,
   HardDrive as BackupIcon,
-  BookUser,
   LayoutDashboard, Package, DollarSign, ShoppingCart,
   Factory, Store, Users, FolderKanban,
   Megaphone, Wrench, MessageCircle, ChevronLeft, ChevronRight,
@@ -34,7 +33,7 @@ const navGroups = [
       { id: 'purchase' as ModuleId, label: 'Purchase', icon: PurchaseIcon, color: '#2563EB', bg: '#DBEAFE' },
       { id: 'partyledger' as ModuleId, label: 'Party Ledger', icon: LedgerIcon, color: '#7C3AED', bg: '#EDE9FE' },
       { id: 'backup' as ModuleId, label: 'Backup & Export', icon: BackupIcon, color: '#7C3AED', bg: '#EDE9FE' },
-      { id: 'contacts' as ModuleId, label: 'Number Diary', icon: BookUser, color: '#0891B2', bg: '#CFFAFE' },
+      { id: 'quotation' as ModuleId, label: 'Quotations', icon: QuotationIcon, color: '#0891B2', bg: '#CFFAFE' },
       { id: 'accounting' as ModuleId, label: 'Accounting', icon: DollarSign, color: '#16A34A', bg: '#DCFCE7' },
       { id: 'sales' as ModuleId, label: 'Sales & CRM', icon: ShoppingCart, color: '#2563EB', bg: '#DBEAFE' },
       { id: 'manufacturing' as ModuleId, label: 'Manufacturing', icon: Factory, color: '#DC2626', bg: '#FEE2E2' },
@@ -76,12 +75,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activeModule, onModuleChange, collaps
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-5 border-b border-white/10">
-        <div className="w-9 h-9 rounded-xl overflow-hidden flex-shrink-0 shadow-lg bg-white flex items-center justify-center">
-          <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" onError={e=>{(e.target as HTMLImageElement).style.display='none'; (e.target as HTMLImageElement).parentElement!.innerHTML='<span class=\"text-purple-700 font-black text-sm\">PH</span>';}} />
+        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center flex-shrink-0 shadow-lg">
+          <span className="text-white font-black text-sm">O</span>
         </div>
         {!collapsed && (
-          <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="font-bold text-xs tracking-wide leading-tight">
-            <span style={{color:'#22c55e'}}>PUNJAB HITECH AGRO</span><br/><span style={{color:'#1e3a8a'}} className="text-[10px] font-semibold">MACHINERY WORKS</span>
+          <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-white font-bold text-lg tracking-wide">
+            Odoo<span className="text-purple-400">ERP</span>
           </motion.span>
         )}
       </div>
