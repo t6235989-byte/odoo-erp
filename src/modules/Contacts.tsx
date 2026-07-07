@@ -204,6 +204,7 @@ export default function Contacts() {
                           {c.phone2&&<a href={`tel:${c.phone2}`} className="text-xs text-blue-500 flex items-center gap-1"><PhoneCall size={11}/>{c.phone2}</a>}
                         </div>
                         {c.address&&<p className="text-[11px] text-gray-400">📍 {c.address}</p>}
+                        {c.notes&&<p className="text-[11px] text-amber-600 mt-0.5">📝 {c.notes}</p>}
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
