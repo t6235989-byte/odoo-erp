@@ -65,6 +65,22 @@ export default function Contacts() {
   const saveContact=async()=>{
     if(!form.name.trim()){showToast('Name required');return;}
     if(!form.phone.trim()){showToast('Phone required');return;}
+
+    // Duplicate check
+    const duplicates: string[] = [];
+    const otherContacts = contacts.filter(c => c.id !== editing?.id);
+    const sameName = otherContacts.find(c => c.name.trim().toLowerCase() === form.name.trim().toLowerCase());
+    const samePhone = otherContacts.find(c => c.phone === form.phone.trim() || (form.phone2 && c.phone === form.phone2.trim()) || (c.phone2 && c.phone2 === form.phone.trim()));
+    const sameCompany = form.company.trim() && otherContacts.find(c => c.company?.trim().toLowerCase() === form.company.trim().toLowerCase());
+    if(sameName) duplicates.push(`Name "${form.name}" already exists (${sameName.phone})`);
+    if(samePhone) duplicates.push(`Phone "${form.phone}" already used by ${samePhone.name}`);
+    if(sameCompany) duplicates.push(`Company "${form.company}" already exists (${(sameCompany as any).name})`);
+
+    if(duplicates.length > 0) {
+      const msg = `⚠️ Possible duplicate found:\n\n${duplicates.join('\n')}\n\nSave anyway?`;
+      if(!window.confirm(msg)) return;
+    }
+
     setLoading(true);
     if(editing?.id){const{id,...r}=form;await supabase.from('contacts').update(r).eq('id',editing.id);showToast('Updated ✓');}
     else{const{id,...r}=form;await supabase.from('contacts').insert([r]);showToast('Saved ✓');}
