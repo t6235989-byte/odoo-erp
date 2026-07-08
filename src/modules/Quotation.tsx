@@ -202,7 +202,7 @@ export default function Quotation() {
           <div style="font-size:11px;font-weight:bold">T o</div>
           <div style="font-size:11px;font-weight:bold;margin-top:4px">M / s - ${previewQ.customer_name.toUpperCase()}</div>
           ${previewQ.customer_address ? `<div style="font-size:11px;font-weight:bold">A D D - ${previewQ.customer_address.toUpperCase()}</div>` : ''}
-          ${previewQ.customer_mobile ? `<div style="font-size:11px;font-weight:bold">M O B - ${previewQ.customer_mobile} SIR</div>` : ''}
+          ${previewQ.customer_mobile ? `<div style="font-size:11px;font-weight:bold">M O B - ${previewQ.customer_mobile}</div>` : ''}
         </div>
         <div style="text-align:center">
           <div style="font-size:16px;font-weight:900;text-decoration:underline">QUOTATION</div>
@@ -525,7 +525,7 @@ export default function Quotation() {
                     <div className="font-bold">T o</div>
                     <div className="font-bold">M / s - {previewQ.customer_name.toUpperCase()}</div>
                     {previewQ.customer_address&&<div className="font-bold">A D D - {previewQ.customer_address.toUpperCase()}</div>}
-                    {previewQ.customer_mobile&&<div className="font-bold">M O B - {previewQ.customer_mobile} SIR</div>}
+                    {previewQ.customer_mobile&&<div className="font-bold">M O B - {previewQ.customer_mobile}</div>}
                   </div>
                   <div className="text-center font-black text-base underline">QUOTATION</div>
                   <div className="text-right">
