@@ -10,7 +10,7 @@ type Quotation = {
   id?: string; quotation_no: string; date: string;
   customer_name: string; customer_address: string; customer_mobile: string;
   subject: string; gst_rate: number; gst_applicable: boolean;
-  discount_type: string; discount_value: number; show_total_only: boolean;
+  discount_type: string; discount_value: number; show_total_only: boolean; gst_label_only: boolean;
   notes: string; status: string; total_amount: number;
 };
 
@@ -18,7 +18,7 @@ const emptyQ = (): Quotation => ({
   quotation_no: '', date: new Date().toISOString().split('T')[0],
   customer_name: '', customer_address: '', customer_mobile: '',
   subject: '', gst_rate: 18, gst_applicable: true,
-  discount_type: 'none', discount_value: 0, show_total_only: false,
+  discount_type: 'none', discount_value: 0, show_total_only: false, gst_label_only: false,
   notes: '', status: 'Draft', total_amount: 0,
 });
 const emptyItem = (sno: number): QuotationItem => ({ sno, particulars: '', qty: 1, load_value: 0, rate: 0, amount: 0 });
@@ -191,17 +191,36 @@ export default function Quotation() {
         </tr>`;
       }
       if (previewQ.gst_applicable) {
-        totalRows += `<tr>
+        if (previewQ.gst_label_only) {
+          // Show label only — no amount, no final total after GST
+          totalRows += `<tr>
+            <td colspan="4" style="border:1px solid #000"></td>
+            <td colspan="2" style="border:1px solid #000;text-align:center;font-size:10px;color:#1e3a8a;font-weight:bold">GSTN@${previewQ.gst_rate}% EXTRA</td>
+          </tr>
+          <tr>
+            <td colspan="4" style="border:1px solid #000"></td>
+            <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:12px;font-weight:900">TOTAL</td>
+            <td style="border:1px solid #000"></td>
+          </tr>`;
+        } else {
+          totalRows += `<tr>
+            <td colspan="4" style="border:1px solid #000"></td>
+            <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:10px;color:#1e3a8a;font-weight:bold">GSTN@${previewQ.gst_rate}%<br/>EXTRA</td>
+            <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:11px;font-weight:bold">${fmtAmt(gstAmt)}</td>
+          </tr>`;
+          totalRows += `<tr style="background:#f3f4f6">
+            <td colspan="4" style="border:1px solid #000"></td>
+            <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:12px;font-weight:900">TOTAL</td>
+            <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:12px;font-weight:900">${fmtAmt(total)}</td>
+          </tr>`;
+        }
+      } else {
+        totalRows += `<tr style="background:#f3f4f6">
           <td colspan="4" style="border:1px solid #000"></td>
-          <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:10px;color:#1e3a8a;font-weight:bold">GSTN@${previewQ.gst_rate}%<br/>EXTRA</td>
-          <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:11px;font-weight:bold">${fmtAmt(gstAmt)}</td>
+          <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:12px;font-weight:900">TOTAL</td>
+          <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:12px;font-weight:900">${fmtAmt(total)}</td>
         </tr>`;
       }
-      totalRows += `<tr style="background:#f3f4f6">
-        <td colspan="4" style="border:1px solid #000"></td>
-        <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:12px;font-weight:900">TOTAL</td>
-        <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:12px;font-weight:900">${fmtAmt(total)}</td>
-      </tr>`;
     }
 
     printWindow.document.write(`<!DOCTYPE html><html><head><title>Quotation - ${previewQ.quotation_no}</title>
@@ -445,7 +464,11 @@ export default function Quotation() {
                     {/* Show total only toggle */}
                     <div className="flex items-center gap-3 border-t border-blue-100 pt-2">
                       <input type="checkbox" id="totalonly" checked={form.show_total_only} onChange={e=>setForm({...form,show_total_only:e.target.checked})} className="w-4 h-4"/>
-                      <label htmlFor="totalonly" className="text-xs font-semibold text-gray-700">Show TOTAL only (hide G.Total, GST, Discount rows)</label>
+                      <label htmlFor="totalonly" className="text-xs font-semibold text-gray-700">Show TOTAL only (hide all rows)</label>
+                    </div>
+                    <div className="flex items-center gap-3 border-t border-blue-100 pt-2">
+                      <input type="checkbox" id="gstlabel" checked={form.gst_label_only} onChange={e=>setForm({...form,gst_label_only:e.target.checked})} className="w-4 h-4"/>
+                      <label htmlFor="gstlabel" className="text-xs font-semibold text-gray-700">GST label only — no amount <span className="text-gray-400">(shows "GSTN@18% EXTRA" without ₹)</span></label>
                     </div>
                   </div>
 
@@ -558,8 +581,11 @@ export default function Quotation() {
                         <tr><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-bold">G.TOTAL</td><td className="border border-gray-400 text-right pr-1 font-bold">{fmtAmt(ps)}</td></tr>
                         {pd>0&&<tr><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-bold text-red-600">LESS {previewQ.discount_type==='percent'?`${previewQ.discount_value}%`:''}</td><td className="border border-gray-400 text-right pr-1 font-bold text-red-600">- {fmtAmt(pd)}</td></tr>}
                         {pd>0&&<tr><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-bold">TOTAL</td><td className="border border-gray-400 text-right pr-1 font-bold">{fmtAmt(pa)}</td></tr>}
-                        {previewQ.gst_applicable&&<tr><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-bold text-blue-700 text-[9px]">GSTN@{previewQ.gst_rate}% EXTRA</td><td className="border border-gray-400 text-right pr-1 font-bold">{fmtAmt(pg)}</td></tr>}
-                        <tr className="bg-gray-100"><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-black">TOTAL</td><td className="border border-gray-400 text-right pr-1 font-black">{fmtAmt(pt)}</td></tr>
+                        {previewQ.gst_applicable&&!previewQ.gst_label_only&&<tr><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-bold text-blue-700 text-[9px]">GSTN@{previewQ.gst_rate}% EXTRA</td><td className="border border-gray-400 text-right pr-1 font-bold">{fmtAmt(pg)}</td></tr>}
+                        {previewQ.gst_applicable&&!previewQ.gst_label_only&&<tr className="bg-gray-100"><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-black">TOTAL</td><td className="border border-gray-400 text-right pr-1 font-black">{fmtAmt(pt)}</td></tr>}
+                        {previewQ.gst_applicable&&previewQ.gst_label_only&&<tr><td colSpan={4} className="border border-gray-400"></td><td colSpan={2} className="border border-gray-400 text-center font-bold text-blue-700 text-[9px]">GSTN@{previewQ.gst_rate}% EXTRA</td></tr>}
+                        {previewQ.gst_applicable&&previewQ.gst_label_only&&<tr><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-black">TOTAL</td><td className="border border-gray-400"></td></tr>}
+                        {!previewQ.gst_applicable&&<tr className="bg-gray-100"><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-black">TOTAL</td><td className="border border-gray-400 text-right pr-1 font-black">{fmtAmt(pt)}</td></tr>}
                       </>}
                     </tbody>
                   </table>
