@@ -1,10 +1,12 @@
 import React from 'react';
-import { FileText as QuotationIcon, motion } from 'framer-motion';
-import { FileText as QuotationIcon,
+import { motion } from 'framer-motion';
+import {
   Clock as ClockIcon,
   ShoppingCart as PurchaseIcon,
   BookOpen as LedgerIcon,
   HardDrive as BackupIcon,
+  FileText as QuotationIcon,
+  BookUser,
   LayoutDashboard, Package, DollarSign, ShoppingCart,
   Factory, Store, Users, FolderKanban,
   Megaphone, Wrench, MessageCircle, ChevronLeft, ChevronRight,
@@ -34,6 +36,7 @@ const navGroups = [
       { id: 'partyledger' as ModuleId, label: 'Party Ledger', icon: LedgerIcon, color: '#7C3AED', bg: '#EDE9FE' },
       { id: 'backup' as ModuleId, label: 'Backup & Export', icon: BackupIcon, color: '#7C3AED', bg: '#EDE9FE' },
       { id: 'quotation' as ModuleId, label: 'Quotations', icon: QuotationIcon, color: '#0891B2', bg: '#CFFAFE' },
+      { id: 'contacts' as ModuleId, label: 'Number Diary', icon: BookUser, color: '#0891B2', bg: '#CFFAFE' },
       { id: 'accounting' as ModuleId, label: 'Accounting', icon: DollarSign, color: '#16A34A', bg: '#DCFCE7' },
       { id: 'sales' as ModuleId, label: 'Sales & CRM', icon: ShoppingCart, color: '#2563EB', bg: '#DBEAFE' },
       { id: 'manufacturing' as ModuleId, label: 'Manufacturing', icon: Factory, color: '#DC2626', bg: '#FEE2E2' },
