@@ -195,9 +195,10 @@ export default function Quotation() {
           // Show label only — no amount, no final total after GST
           totalRows += `<tr>
             <td colspan="4" style="border:1px solid #000"></td>
-            <td colspan="2" style="border:1px solid #000;text-align:center;font-size:10px;color:#1e3a8a;font-weight:bold">GSTN@${previewQ.gst_rate}% EXTRA</td>
+            <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:10px;color:#1e3a8a;font-weight:bold">GSTN@${previewQ.gst_rate}%<br/>EXTRA</td>
+            <td style="border:1px solid #000"></td>
           </tr>
-          <tr>
+          <tr style="background:#f3f4f6">
             <td colspan="4" style="border:1px solid #000"></td>
             <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:12px;font-weight:900">TOTAL</td>
             <td style="border:1px solid #000"></td>
@@ -583,8 +584,8 @@ export default function Quotation() {
                         {pd>0&&<tr><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-bold">TOTAL</td><td className="border border-gray-400 text-right pr-1 font-bold">{fmtAmt(pa)}</td></tr>}
                         {previewQ.gst_applicable&&!previewQ.gst_label_only&&<tr><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-bold text-blue-700 text-[9px]">GSTN@{previewQ.gst_rate}% EXTRA</td><td className="border border-gray-400 text-right pr-1 font-bold">{fmtAmt(pg)}</td></tr>}
                         {previewQ.gst_applicable&&!previewQ.gst_label_only&&<tr className="bg-gray-100"><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-black">TOTAL</td><td className="border border-gray-400 text-right pr-1 font-black">{fmtAmt(pt)}</td></tr>}
-                        {previewQ.gst_applicable&&previewQ.gst_label_only&&<tr><td colSpan={4} className="border border-gray-400"></td><td colSpan={2} className="border border-gray-400 text-center font-bold text-blue-700 text-[9px]">GSTN@{previewQ.gst_rate}% EXTRA</td></tr>}
-                        {previewQ.gst_applicable&&previewQ.gst_label_only&&<tr><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-black">TOTAL</td><td className="border border-gray-400"></td></tr>}
+                        {previewQ.gst_applicable&&previewQ.gst_label_only&&<tr><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-bold text-blue-700 text-[9px]">GSTN@{previewQ.gst_rate}% EXTRA</td><td className="border border-gray-400"></td></tr>}
+                        {previewQ.gst_applicable&&previewQ.gst_label_only&&<tr className="bg-gray-100"><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-black">TOTAL</td><td className="border border-gray-400"></td></tr>}
                         {!previewQ.gst_applicable&&<tr className="bg-gray-100"><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-black">TOTAL</td><td className="border border-gray-400 text-right pr-1 font-black">{fmtAmt(pt)}</td></tr>}
                       </>}
                     </tbody>
