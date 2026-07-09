@@ -225,54 +225,92 @@ export default function Quotation() {
     }
 
     printWindow.document.write(`<!DOCTYPE html><html><head><title>Quotation - ${previewQ.quotation_no}</title>
-    <style>* { margin:0;padding:0;box-sizing:border-box; } body { font-family:Arial,sans-serif;padding:20px;color:#000; } @media print { body{padding:10px;} @page{margin:10mm;} }</style>
+    <style>
+      * { margin:0;padding:0;box-sizing:border-box; }
+      body { font-family:Arial,sans-serif;color:#000;background:#fff; }
+      @media print {
+        @page { size:A4 portrait; margin:8mm; }
+        body { margin:0;padding:0; }
+        .page { width:100%;min-height:277mm;padding:0; border:none; }
+      }
+      @media screen {
+        body { padding:10px;background:#f0f0f0; }
+        .page { width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:8mm;border:1px solid #ccc; }
+      }
+      table { width:100%;border-collapse:collapse; }
+      th,td { font-size:11pt; }
+    </style>
     </head><body>
-    <div style="max-width:800px;margin:0 auto;border:2px solid #000;padding:16px">
-      <div style="display:flex;align-items:flex-start;margin-bottom:8px">
-        <img src="/logo.png" style="width:80px;height:80px;object-fit:contain;margin-right:16px" onerror="this.style.display='none'"/>
+    <div class="page">
+      <!-- Header -->
+      <div style="display:flex;align-items:flex-start;margin-bottom:6px">
+        <img src="/logo.png" style="width:75px;height:75px;object-fit:contain;margin-right:12px;flex-shrink:0" onerror="this.style.display='none'"/>
         <div style="flex:1">
-          <div style="text-align:right;font-size:11px;font-weight:bold">E-mail : tahir786punjabhitechagro@gmail.com</div>
-          <div style="font-size:32px;font-weight:900;color:#22c55e;letter-spacing:2px">PUNJAB HITECH AGRO</div>
-          <div style="font-size:28px;font-weight:900;color:#1e3a8a;letter-spacing:2px">MACHINERY WORKS</div>
-          <div style="display:flex;justify-content:space-between;margin-top:4px">
-            <span style="font-size:10px;font-weight:bold">OFFICE : BHOGLA ROAD, NEAR CITI HOSPITAL, RAJPURA, DISTT. PATIALA, PUNJAB, 140401</span>
-            <span style="font-size:10px;font-weight:bold">M : 9478660161 , 9463053786</span>
+          <div style="text-align:right;font-size:10pt;font-weight:bold">E-mail : tahir786punjabhitechagro@gmail.com</div>
+          <div style="font-size:28pt;font-weight:900;color:#22c55e;letter-spacing:3px;line-height:1.1">PUNJAB HITECH AGRO</div>
+          <div style="font-size:24pt;font-weight:900;color:#1e3a8a;letter-spacing:3px;line-height:1.1">MACHINERY WORKS</div>
+          <div style="display:flex;justify-content:space-between;margin-top:3px">
+            <span style="font-size:9pt;font-weight:bold">OFFICE : BHOGLA ROAD, NEAR CITI HOSPITAL, RAJPURA, DISTT. PATIALA, PUNJAB, 140401</span>
+            <span style="font-size:9pt;font-weight:bold;white-space:nowrap;margin-left:8px">M : 9478660161 , 9463053786</span>
           </div>
         </div>
       </div>
-      <hr style="border:1px solid #000;margin:4px 0"/>
+      <hr style="border:1.5px solid #000;margin:4px 0"/>
+
+      <!-- Customer / Quotation Info -->
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin:8px 0">
-        <div>
-          <div style="font-size:11px;font-weight:bold">T o</div>
-          <div style="font-size:11px;font-weight:bold;margin-top:4px">M / s - ${previewQ.customer_name.toUpperCase()}</div>
-          ${previewQ.customer_address ? `<div style="font-size:11px;font-weight:bold">A D D - ${previewQ.customer_address.toUpperCase()}</div>` : ''}
-          ${previewQ.customer_mobile ? `<div style="font-size:11px;font-weight:bold">M O B - ${previewQ.customer_mobile}</div>` : ''}
+        <div style="flex:1">
+          <div style="font-size:11pt;font-weight:bold">T o</div>
+          <div style="font-size:11pt;font-weight:bold;margin-top:3px">M / s - ${previewQ.customer_name.toUpperCase()}</div>
+          ${previewQ.customer_address ? `<div style="font-size:11pt;font-weight:bold">A D D - ${previewQ.customer_address.toUpperCase()}</div>` : ''}
+          ${previewQ.customer_mobile ? `<div style="font-size:11pt;font-weight:bold">M O B - ${previewQ.customer_mobile}</div>` : ''}
         </div>
-        <div style="text-align:center"><div style="font-size:16px;font-weight:900;text-decoration:underline">QUOTATION</div></div>
-        <div style="text-align:right">
-          <div style="font-size:11px;font-weight:bold">Dated- ${fmt(previewQ.date)}</div>
-          <div style="font-size:11px;font-weight:bold">No: ${previewQ.quotation_no}</div>
+        <div style="text-align:center;flex-shrink:0;padding:0 20px">
+          <div style="font-size:15pt;font-weight:900;text-decoration:underline">QUOTATION</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:11pt;font-weight:bold">Dated- ${fmt(previewQ.date)}</div>
+          <div style="font-size:11pt;font-weight:bold">No: ${previewQ.quotation_no}</div>
         </div>
       </div>
-      ${previewQ.subject ? `<div style="font-size:11px;font-weight:bold;text-decoration:underline;margin:6px 0">S U B J E C T : ${previewQ.subject.toUpperCase()}</div>` : ''}
-      <div style="font-size:11px;font-weight:bold;margin:6px 0">R E S P E C T E D S I R , I N R E F E R E N C E T O O U R D I S C U S S I O N , W E A R E P L E A S E D T O P R O V I D E O U R L O W E S T P R I C E F O R T H E A F O R E M E N T I O N E D M A C H I N E R Y , D E T A I L E D A S F O L L O W S :</div>
-      <table style="width:100%;border-collapse:collapse;margin-top:8px">
-        <thead><tr style="background:#e5e7eb">
-          <th style="border:1px solid #000;padding:4px;font-size:11px;width:40px">S.NO.</th>
-          <th style="border:1px solid #000;padding:4px;font-size:11px;text-align:left">PARTICULARS</th>
-          <th style="border:1px solid #000;padding:4px;font-size:11px;width:50px">QTY.</th>
-          <th style="border:1px solid #000;padding:4px;font-size:11px;width:50px">LOAD</th>
-          <th style="border:1px solid #000;padding:4px;font-size:11px;width:100px">RATE</th>
-          <th style="border:1px solid #000;padding:4px;font-size:11px;width:100px">AMOUNT</th>
-        </tr></thead>
-        <tbody>${itemRows}${totalRows}</tbody>
+
+      ${previewQ.subject ? `<div style="font-size:11pt;font-weight:bold;text-decoration:underline;margin:5px 0">S U B J E C T : ${previewQ.subject.toUpperCase()}</div>` : ''}
+      <div style="font-size:10pt;font-weight:bold;margin:5px 0;line-height:1.5">R E S P E C T E D &nbsp; S I R , &nbsp; I N &nbsp; R E F E R E N C E &nbsp; T O &nbsp; O U R &nbsp; D I S C U S S I O N , &nbsp; W E &nbsp; A R E &nbsp; P L E A S E D &nbsp; T O &nbsp; P R O V I D E &nbsp; O U R &nbsp; L O W E S T &nbsp; P R I C E &nbsp; F O R &nbsp; T H E &nbsp; A F O R E M E N T I O N E D &nbsp; M A C H I N E R Y , &nbsp; D E T A I L E D &nbsp; A S &nbsp; F O L L O W S :</div>
+
+      <!-- Items Table -->
+      <table style="width:100%;border-collapse:collapse;margin-top:6px">
+        <thead>
+          <tr style="background:#e5e7eb">
+            <th style="border:1px solid #000;padding:6px 4px;font-size:10pt;width:42px;text-align:center">S.NO.</th>
+            <th style="border:1px solid #000;padding:6px 8px;font-size:10pt;text-align:left">PARTICULARS</th>
+            <th style="border:1px solid #000;padding:6px 4px;font-size:10pt;width:55px;text-align:center">QTY.</th>
+            <th style="border:1px solid #000;padding:6px 4px;font-size:10pt;width:55px;text-align:center">LOAD</th>
+            <th style="border:1px solid #000;padding:6px 8px;font-size:10pt;width:110px;text-align:right">RATE</th>
+            <th style="border:1px solid #000;padding:6px 8px;font-size:10pt;width:110px;text-align:right">AMOUNT</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemRows}
+          ${totalRows}
+        </tbody>
       </table>
-      <div style="margin-top:16px;font-size:10px;font-weight:bold">NOTE : TOTAL PLANT COMPLETE WITHOUT SWITCH STARTER, ELECTRIC WIRING, HUSKER RUBBER ROLL, POLISHER RUBBER, JALI, EMERY SALT, MAIN MOTOR, V-BELT AND PULLY SET, CIVIL WORK, PLUMBER WORK &amp; ABCD PLANT ETC.</div>
-      ${previewQ.notes ? `<div style="margin-top:4px;font-size:10px;font-weight:bold">${previewQ.notes}</div>` : ''}
-      <div style="margin-top:8px;font-size:11px;font-weight:bold;font-style:italic;color:#1e3a8a">FOR PUNJAB HITECH AGRO MACHINERY WORKS</div>
-      <div style="margin-top:12px;font-size:11px;font-weight:bold;color:#1e3a8a">AUTH. SIGNATORY</div>
-      <div style="margin-top:6px;font-size:10px;font-weight:bold;line-height:1.6">*GST 18% ON RICE MACHINERY.<br/>*QUOTATION IS VALID FOR 15 DAYS.<br/>*SUBJECT TO RAJPURA JURISDICTION.<br/>*ADVANCE 25% PAYMENT ON ORDER AND REST ON DELIVERY.<br/>*FREIGHT CHARGES EXTRA.</div>
-      <hr style="border:1px solid #000;margin-top:12px"/>
+
+      <!-- Notes -->
+      <div style="margin-top:14px;font-size:9.5pt;font-weight:bold;line-height:1.5">
+        NOTE : TOTAL PLANT COMPLETE WITHOUT SWITCH STARTER, ELECTRIC WIRING, HUSKER RUBBER ROLL, POLISHER RUBBER, JALI, EMERY SALT, MAIN MOTOR, V-BELT AND PULLY SET, CIVIL WORK, PLUMBER WORK &amp; ABCD PLANT ETC.
+      </div>
+      ${previewQ.notes ? `<div style="margin-top:4px;font-size:9.5pt;font-weight:bold">${previewQ.notes}</div>` : ''}
+
+      <div style="margin-top:10px;font-size:11pt;font-weight:bold;font-style:italic;color:#1e3a8a">FOR PUNJAB HITECH AGRO MACHINERY WORKS</div>
+      <div style="margin-top:14px;font-size:11pt;font-weight:bold;color:#1e3a8a">AUTH. SIGNATORY</div>
+      <div style="margin-top:6px;font-size:9.5pt;font-weight:bold;line-height:1.8">
+        *GST 18% ON RICE MACHINERY.<br/>
+        *QUOTATION IS VALID FOR 15 DAYS.<br/>
+        *SUBJECT TO RAJPURA JURISDICTION.<br/>
+        *ADVANCE 25% PAYMENT ON ORDER AND REST ON DELIVERY.<br/>
+        *FREIGHT CHARGES EXTRA.
+      </div>
+      <hr style="border:1px solid #000;margin-top:14px"/>
     </div>
     <script>window.onload=()=>{window.print();}</script></body></html>`);
     printWindow.document.close();
