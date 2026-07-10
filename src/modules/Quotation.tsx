@@ -10,7 +10,7 @@ type Quotation = {
   id?: string; quotation_no: string; date: string;
   customer_name: string; customer_address: string; customer_mobile: string;
   subject: string; gst_rate: number; gst_applicable: boolean;
-  discount_type: string; discount_value: number; show_total_only: boolean; gst_label_only: boolean;
+  discount_type: string; discount_value: number; discount_position: string; show_total_only: boolean; gst_label_only: boolean;
   notes: string; status: string; total_amount: number;
 };
 
@@ -18,7 +18,7 @@ const emptyQ = (): Quotation => ({
   quotation_no: '', date: new Date().toISOString().split('T')[0],
   customer_name: '', customer_address: '', customer_mobile: '',
   subject: '', gst_rate: 18, gst_applicable: true,
-  discount_type: 'none', discount_value: 0, show_total_only: false, gst_label_only: false,
+  discount_type: 'none', discount_value: 0, discount_position: 'before_gst', show_total_only: false, gst_label_only: false,
   notes: '', status: 'Draft', total_amount: 0,
 });
 const emptyItem = (sno: number): QuotationItem => ({ sno, particulars: '', qty: 1, load_value: 0, rate: 0, amount: 0 });
@@ -139,9 +139,18 @@ export default function Quotation() {
     let discountAmt = 0;
     if (q.discount_type === 'percent') discountAmt = Math.round(subtotal * q.discount_value / 100);
     else if (q.discount_type === 'fixed') discountAmt = q.discount_value;
-    const afterDiscount = subtotal - discountAmt;
-    const gstAmt = q.gst_applicable ? Math.round(afterDiscount * q.gst_rate / 100) : 0;
-    return { subtotal, discountAmt, afterDiscount, gstAmt, total: afterDiscount + gstAmt };
+    const pos = q.discount_position || 'before_gst';
+    // before_gst: GST on (subtotal - discount)
+    // after_gst: GST on subtotal, then deduct discount
+    // after_gst_label: GST label only, then deduct discount from subtotal+gst
+    let gstBase = subtotal;
+    if (pos === 'before_gst') gstBase = subtotal - discountAmt;
+    const gstAmt = q.gst_applicable ? Math.round(gstBase * q.gst_rate / 100) : 0;
+    const subtotalPlusGst = subtotal + (pos !== 'before_gst' ? gstAmt : 0);
+    const total = pos === 'before_gst'
+      ? (subtotal - discountAmt) + gstAmt
+      : subtotalPlusGst - discountAmt;
+    return { subtotal, discountAmt, gstAmt, subtotalPlusGst, total };
   };
 
   const printPDF = () => {
@@ -162,65 +171,35 @@ export default function Quotation() {
       </tr>`;
     }).join('');
 
-    // Build total rows based on show_total_only
+    // Build total rows based on options
+    const pos = previewQ.discount_position || 'before_gst';
+    const discLabel2 = previewQ.discount_type==='percent' ? `LESS ${previewQ.discount_value}%` : 'LESS';
+    const R = (label: string, amt: string, bg='', color='#000') =>
+      `<tr style="background:${bg}"><td colspan="4" style="border:1px solid #000"></td><td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:11px;font-weight:bold;color:${color}">${label}</td><td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:11px;font-weight:bold;color:${color}">${amt}</td></tr>`;
+    const RB = (label: string, amt: string) =>
+      `<tr style="background:#f3f4f6"><td colspan="4" style="border:1px solid #000"></td><td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:12px;font-weight:900">${label}</td><td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:12px;font-weight:900">${amt}</td></tr>`;
+    const REmpty = (label: string, color='#1e3a8a') =>
+      `<tr><td colspan="4" style="border:1px solid #000"></td><td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:10px;font-weight:bold;color:${color}">${label}</td><td style="border:1px solid #000"></td></tr>`;
+
     let totalRows = '';
     if (previewQ.show_total_only) {
-      // Only show TOTAL row
-      totalRows = `<tr style="background:#f3f4f6">
-        <td colspan="4" style="border:1px solid #000"></td>
-        <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:12px;font-weight:900">TOTAL</td>
-        <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:12px;font-weight:900">${fmtAmt(total)}</td>
-      </tr>`;
+      totalRows = RB('TOTAL', fmtAmt(total));
     } else {
-      totalRows = `<tr>
-        <td colspan="4" style="border:1px solid #000"></td>
-        <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:11px;font-weight:bold">G.TOTAL</td>
-        <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:11px;font-weight:bold">${fmtAmt(subtotal)}</td>
-      </tr>`;
-      if (discountAmt > 0) {
-        const discLabel = previewQ.discount_type === 'percent' ? `LESS ${previewQ.discount_value}%` : 'LESS (Discount)';
-        totalRows += `<tr>
-          <td colspan="4" style="border:1px solid #000"></td>
-          <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:11px;font-weight:bold;color:#dc2626">${discLabel}</td>
-          <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:11px;font-weight:bold;color:#dc2626">- ${fmtAmt(discountAmt)}</td>
-        </tr>`;
-        if (discountAmt > 0) totalRows += `<tr>
-          <td colspan="4" style="border:1px solid #000"></td>
-          <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:11px;font-weight:bold">TOTAL</td>
-          <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:11px;font-weight:bold">${fmtAmt(afterDiscount)}</td>
-        </tr>`;
-      }
-      if (previewQ.gst_applicable) {
-        if (previewQ.gst_label_only) {
-          // Show label only — no amount, no final total after GST
-          totalRows += `<tr>
-            <td colspan="4" style="border:1px solid #000"></td>
-            <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:10px;color:#1e3a8a;font-weight:bold">GSTN@${previewQ.gst_rate}%<br/>EXTRA</td>
-            <td style="border:1px solid #000"></td>
-          </tr>
-          <tr style="background:#f3f4f6">
-            <td colspan="4" style="border:1px solid #000"></td>
-            <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:12px;font-weight:900">TOTAL</td>
-            <td style="border:1px solid #000"></td>
-          </tr>`;
-        } else {
-          totalRows += `<tr>
-            <td colspan="4" style="border:1px solid #000"></td>
-            <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:10px;color:#1e3a8a;font-weight:bold">GSTN@${previewQ.gst_rate}%<br/>EXTRA</td>
-            <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:11px;font-weight:bold">${fmtAmt(gstAmt)}</td>
-          </tr>`;
-          totalRows += `<tr style="background:#f3f4f6">
-            <td colspan="4" style="border:1px solid #000"></td>
-            <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:12px;font-weight:900">TOTAL</td>
-            <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:12px;font-weight:900">${fmtAmt(total)}</td>
-          </tr>`;
-        }
+      totalRows += R('G.TOTAL', fmtAmt(subtotal));
+      if (pos === 'before_gst') {
+        if (discountAmt>0) { totalRows += R(discLabel2, `- ${fmtAmt(discountAmt)}`, '', '#dc2626'); totalRows += R('TOTAL', fmtAmt(subtotal-discountAmt)); }
+        if (previewQ.gst_applicable) {
+          if (previewQ.gst_label_only) { totalRows += REmpty(`GSTN@${previewQ.gst_rate}%<br/>EXTRA`); totalRows += RB('TOTAL', ''); }
+          else { totalRows += R(`GSTN@${previewQ.gst_rate}%<br/>EXTRA`, fmtAmt(gstAmt), '', '#1e3a8a'); totalRows += RB('TOTAL', fmtAmt(total)); }
+        } else { totalRows += RB('TOTAL', fmtAmt(total)); }
+      } else if (pos === 'after_gst') {
+        if (previewQ.gst_applicable) { totalRows += R(`GSTN@${previewQ.gst_rate}%<br/>EXTRA`, fmtAmt(gstAmt), '', '#1e3a8a'); totalRows += R('TOTAL', fmtAmt(subtotalPlusGst)); }
+        if (discountAmt>0) totalRows += R(discLabel2, `- ${fmtAmt(discountAmt)}`, '', '#dc2626');
+        totalRows += RB('TOTAL', fmtAmt(total));
       } else {
-        totalRows += `<tr style="background:#f3f4f6">
-          <td colspan="4" style="border:1px solid #000"></td>
-          <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:12px;font-weight:900">TOTAL</td>
-          <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:12px;font-weight:900">${fmtAmt(total)}</td>
-        </tr>`;
+        if (previewQ.gst_applicable) { totalRows += REmpty(`GSTN@${previewQ.gst_rate}%<br/>EXTRA`); totalRows += R('TOTAL', fmtAmt(subtotalPlusGst)); }
+        if (discountAmt>0) totalRows += R(discLabel2, `- ${fmtAmt(discountAmt)}`, '', '#dc2626');
+        totalRows += RB('TOTAL', fmtAmt(total));
       }
     }
 
@@ -480,9 +459,27 @@ export default function Quotation() {
                       ))}
                     </div>
                     {form.discount_type!=='none'&&(
-                      <input type="number" value={form.discount_value||''} onChange={e=>setForm({...form,discount_value:Number(e.target.value)})}
-                        placeholder={form.discount_type==='percent'?'e.g. 5 (for 5%)':'e.g. 5000'}
-                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-200 bg-white"/>
+                      <>
+                        <input type="number" value={form.discount_value||''} onChange={e=>setForm({...form,discount_value:Number(e.target.value)})}
+                          placeholder={form.discount_type==='percent'?'e.g. 5 (for 5%)':'e.g. 5000'}
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-200 bg-white"/>
+                        <div>
+                          <p className="text-xs font-semibold text-gray-600 mb-1.5">Where to apply LESS:</p>
+                          <div className="space-y-1.5">
+                            {[
+                              {val:'before_gst',      label:'LESS before GST',           desc:'G.Total → LESS → Total → GST → Final Total'},
+                              {val:'after_gst',       label:'LESS after GST (with amt)',  desc:'G.Total → GST ₹X → Total → LESS → Final Total'},
+                              {val:'after_gst_label', label:'LESS after GST (label only)',desc:'G.Total → GST EXTRA → Total → LESS → Final Total'},
+                            ].map(opt=>(
+                              <button key={opt.val} onClick={()=>setForm({...form,discount_position:opt.val})}
+                                className={`w-full text-left px-3 py-2 rounded-xl border text-xs transition-colors ${(form.discount_position||'before_gst')===opt.val?'bg-red-500 text-white border-red-500':'bg-white text-gray-600 border-gray-200 hover:border-red-300'}`}>
+                                <span className="font-semibold">{opt.label}</span>
+                                <span className={`block text-[10px] mt-0.5 ${(form.discount_position||'before_gst')===opt.val?'text-red-100':'text-gray-400'}`}>{opt.desc}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
                     )}
                   </div>
 
@@ -616,15 +613,37 @@ export default function Quotation() {
                           <td className="border border-gray-400 text-right pr-1 font-black">TOTAL</td>
                           <td className="border border-gray-400 text-right pr-1 font-black">{fmtAmt(pt)}</td>
                         </tr>
-                      ):<>
-                        <tr><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-bold">G.TOTAL</td><td className="border border-gray-400 text-right pr-1 font-bold">{fmtAmt(ps)}</td></tr>
-                        {pd>0&&<tr><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-bold text-red-600">LESS {previewQ.discount_type==='percent'?`${previewQ.discount_value}%`:''}</td><td className="border border-gray-400 text-right pr-1 font-bold text-red-600">- {fmtAmt(pd)}</td></tr>}
-                        {pd>0&&<tr><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-bold">TOTAL</td><td className="border border-gray-400 text-right pr-1 font-bold">{fmtAmt(pa)}</td></tr>}
-                        {previewQ.gst_applicable&&!previewQ.gst_label_only&&<tr><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-bold text-blue-700 text-[9px]">GSTN@{previewQ.gst_rate}% EXTRA</td><td className="border border-gray-400 text-right pr-1 font-bold">{fmtAmt(pg)}</td></tr>}
-                        {previewQ.gst_applicable&&!previewQ.gst_label_only&&<tr className="bg-gray-100"><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-black">TOTAL</td><td className="border border-gray-400 text-right pr-1 font-black">{fmtAmt(pt)}</td></tr>}
-                        {previewQ.gst_applicable&&previewQ.gst_label_only&&<tr><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-bold text-blue-700 text-[9px]">GSTN@{previewQ.gst_rate}% EXTRA</td><td className="border border-gray-400"></td></tr>}
-                        {previewQ.gst_applicable&&previewQ.gst_label_only&&<tr className="bg-gray-100"><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-black">TOTAL</td><td className="border border-gray-400"></td></tr>}
-                        {!previewQ.gst_applicable&&<tr className="bg-gray-100"><td colSpan={4} className="border border-gray-400"></td><td className="border border-gray-400 text-right pr-1 font-black">TOTAL</td><td className="border border-gray-400 text-right pr-1 font-black">{fmtAmt(pt)}</td></tr>}
+                      ):<>{/* Position-aware total rows */}
+                        {(()=>{
+                          const ppos = previewQ.discount_position||'before_gst';
+                          const dl = previewQ.discount_type==='percent'?`LESS ${previewQ.discount_value}%`:'LESS';
+                          const C4 = {colSpan:4,className:"border border-gray-400"};
+                          const TL = (label:string,val:string,bold=false,red=false,empty=false) => (
+                            <tr className={bold?"bg-gray-100":""}><td {...C4}></td>
+                              <td className={`border border-gray-400 text-right pr-1 font-bold text-[10px] ${red?"text-red-600":bold?"text-blue-700":""}`}>{label}</td>
+                              <td className={`border border-gray-400 text-right pr-1 ${bold?"font-black":"font-bold"} ${red?"text-red-600":""}`}>{empty?"":val}</td>
+                            </tr>);
+                          const gstLabel = `GSTN@${previewQ.gst_rate}% EXTRA`;
+                          return <>
+                            {TL('G.TOTAL',fmtAmt(ps))}
+                            {ppos==='before_gst'&&<>
+                              {pd>0&&TL(dl,`- ${fmtAmt(pd)}`,false,true)}
+                              {pd>0&&TL('TOTAL',fmtAmt(ps-pd))}
+                              {previewQ.gst_applicable&&(previewQ.gst_label_only?<>{TL(gstLabel,'',false,false,true)}{TL('TOTAL','',true,false,true)}</>:<>{TL(gstLabel,fmtAmt(pg))}{TL('TOTAL',fmtAmt(pt),true)}</>)}
+                              {!previewQ.gst_applicable&&TL('TOTAL',fmtAmt(pt),true)}
+                            </>}
+                            {ppos==='after_gst'&&<>
+                              {previewQ.gst_applicable&&<>{TL(gstLabel,fmtAmt(pg))}{TL('TOTAL',fmtAmt(ps+pg))}</>}
+                              {pd>0&&TL(dl,`- ${fmtAmt(pd)}`,false,true)}
+                              {TL('TOTAL',fmtAmt(pt),true)}
+                            </>}
+                            {ppos==='after_gst_label'&&<>
+                              {previewQ.gst_applicable&&<>{TL(gstLabel,'',false,false,true)}{TL('TOTAL',fmtAmt(ps+pg))}</>}
+                              {pd>0&&TL(dl,`- ${fmtAmt(pd)}`,false,true)}
+                              {TL('TOTAL',fmtAmt(pt),true)}
+                            </>}
+                          </>;
+                        })()}
                       </>}
                     </tbody>
                   </table>
