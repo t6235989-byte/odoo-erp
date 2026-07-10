@@ -64,14 +64,28 @@ export default function Contacts() {
   useEffect(()=>{loadAll();},[]);
   const showToast=(msg:string)=>{setToast(msg);setTimeout(()=>setToast(''),3000);};
 
+  const DEFAULT_CATS: Category[] = [
+    {name:'Customer',is_default:true},{name:'Vendor',is_default:true},{name:'Painter',is_default:true},
+    {name:'Welder',is_default:true},{name:'Transporter',is_default:true},{name:'Electrician',is_default:true},
+    {name:'Mechanic',is_default:true},{name:'Plumber',is_default:true},{name:'Carpenter',is_default:true},
+    {name:'Labour',is_default:true},{name:'Seller',is_default:true},{name:'Purchaser',is_default:true},
+    {name:'Agent',is_default:true},{name:'Other',is_default:true},
+  ];
+
   const loadAll=async()=>{
-    const [{data:c},{data:h},{data:d},{data:cats}]=await Promise.all([
-      supabase.from('contacts').select('*').order('name'),
-      supabase.from('contact_history').select('*').order('work_date',{ascending:false}),
-      supabase.from('contact_documents').select('*').order('uploaded_at',{ascending:false}),
-      supabase.from('contact_categories').select('*').order('name'),
-    ]);
-    setContacts(c||[]);setHistory(h||[]);setDocs(d||[]);setCategories(cats||[]);
+    try {
+      const [{data:c},{data:h},{data:d},{data:cats}]=await Promise.all([
+        supabase.from('contacts').select('*').order('name'),
+        supabase.from('contact_history').select('*').order('work_date',{ascending:false}),
+        supabase.from('contact_documents').select('*').order('uploaded_at',{ascending:false}),
+        supabase.from('contact_categories').select('*').order('name'),
+      ]);
+      setContacts(c||[]);setHistory(h||[]);setDocs(d||[]);
+      setCategories(cats && cats.length > 0 ? cats : DEFAULT_CATS);
+    } catch(e) {
+      console.error('Contacts load error:', e);
+      setCategories(DEFAULT_CATS);
+    }
   };
 
   const catNames = ['All', ...categories.map(c=>c.name)];
