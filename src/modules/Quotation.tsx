@@ -90,9 +90,15 @@ export default function Quotation() {
     let discountAmt = 0;
     if (f.discount_type === 'percent') discountAmt = Math.round(subtotal * f.discount_value / 100);
     else if (f.discount_type === 'fixed') discountAmt = f.discount_value;
-    const afterDiscount = subtotal - discountAmt;
-    const gstAmt = f.gst_applicable ? Math.round(afterDiscount * f.gst_rate / 100) : 0;
-    return { subtotal, discountAmt, afterDiscount, gstAmt, total: afterDiscount + gstAmt };
+    const pos = f.discount_position || 'before_gst';
+    // GST base depends on position
+    const gstBase = pos === 'before_gst' ? subtotal - discountAmt : subtotal;
+    const gstAmt = f.gst_applicable ? Math.round(gstBase * f.gst_rate / 100) : 0;
+    const subtotalPlusGst = subtotal + gstAmt;
+    const total = pos === 'before_gst'
+      ? (subtotal - discountAmt) + gstAmt
+      : subtotalPlusGst - discountAmt;
+    return { subtotal, discountAmt, gstAmt, subtotalPlusGst, total };
   };
 
   const saveQuotation = async () => {
@@ -157,7 +163,7 @@ export default function Quotation() {
     const printWindow = window.open('', '_blank');
     if (!printWindow || !previewQ) return;
     const its = previewItems;
-    const { subtotal, discountAmt, afterDiscount, gstAmt, total } = calcPreviewTotals(previewQ, its);
+    const { subtotal, discountAmt, gstAmt, subtotalPlusGst, total } = calcPreviewTotals(previewQ, its);
 
     const itemRows = Array.from({ length: Math.max(its.length, 6) }, (_, idx) => {
       const it = its[idx];
@@ -296,7 +302,7 @@ export default function Quotation() {
   };
 
   const filtered = quotations.filter(q => !search || q.customer_name.toLowerCase().includes(search.toLowerCase()) || q.quotation_no.toLowerCase().includes(search.toLowerCase()) || (q.subject || '').toLowerCase().includes(search.toLowerCase()));
-  const { subtotal, discountAmt, afterDiscount, gstAmt, total } = calcTotals();
+  const { subtotal, discountAmt, gstAmt, subtotalPlusGst, total } = calcTotals();
   const STATUS_COLORS: Record<string, string> = { Draft:'bg-gray-100 text-gray-600', Sent:'bg-blue-100 text-blue-700', Accepted:'bg-green-100 text-green-700', Rejected:'bg-red-100 text-red-700' };
 
   return (
@@ -519,7 +525,7 @@ export default function Quotation() {
                   <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Summary</p>
                   <div className="flex justify-between text-sm"><span className="text-gray-500">G. Total</span><span className="font-semibold">₹{subtotal.toLocaleString('en-IN')}</span></div>
                   {discountAmt>0&&<div className="flex justify-between text-sm"><span className="text-red-500">LESS {form.discount_type==='percent'?`${form.discount_value}%`:'Discount'}</span><span className="font-semibold text-red-500">- ₹{discountAmt.toLocaleString('en-IN')}</span></div>}
-                  {discountAmt>0&&<div className="flex justify-between text-sm"><span className="text-gray-500">After Discount</span><span className="font-semibold">₹{afterDiscount.toLocaleString('en-IN')}</span></div>}
+                  {discountAmt>0&&(form.discount_position||'before_gst')==='before_gst'&&<div className="flex justify-between text-sm"><span className="text-gray-500">After Discount</span><span className="font-semibold">₹{(subtotal-discountAmt).toLocaleString('en-IN')}</span></div>}
                   {form.gst_applicable&&<div className="flex justify-between text-sm"><span className="text-blue-600">GST @{form.gst_rate}%</span><span className="font-semibold text-blue-600">₹{gstAmt.toLocaleString('en-IN')}</span></div>}
                   <div className="border-t border-gray-200 pt-1.5 flex justify-between">
                     <span className="font-bold text-gray-800">TOTAL</span>
@@ -542,7 +548,7 @@ export default function Quotation() {
 
       {/* Preview Modal */}
       {showPreview&&previewQ&&(()=>{
-        const { subtotal: ps, discountAmt: pd, afterDiscount: pa, gstAmt: pg, total: pt } = calcPreviewTotals(previewQ, previewItems);
+        const { subtotal: ps, discountAmt: pd, gstAmt: pg, subtotalPlusGst: psg, total: pt } = calcPreviewTotals(previewQ, previewItems);
         return(
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto">
             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl my-4">
