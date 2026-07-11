@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Plus, Trash2, Edit2, X, FileText, Download, Search, Eye, Copy } from 'lucide-react';
+import { Plus, Trash2, Edit2, X, FileText, Download, Search, Eye, EyeOff, Copy } from 'lucide-react';
 
 type QuotationItem = {
   id?: string; quotation_id?: string; sno: number;
@@ -10,7 +10,7 @@ type Quotation = {
   id?: string; quotation_no: string; date: string;
   customer_name: string; customer_address: string; customer_mobile: string;
   subject: string; gst_rate: number; gst_applicable: boolean;
-  discount_type: string; discount_value: number; discount_position: string; show_total_only: boolean; gst_label_only: boolean;
+  discount_type: string; discount_value: number; discount_position: string; show_total_only: boolean; gst_label_only: boolean; visible_rows: string;
   notes: string; status: string; total_amount: number;
 };
 
@@ -18,7 +18,7 @@ const emptyQ = (): Quotation => ({
   quotation_no: '', date: new Date().toISOString().split('T')[0],
   customer_name: '', customer_address: '', customer_mobile: '',
   subject: '', gst_rate: 18, gst_applicable: true,
-  discount_type: 'none', discount_value: 0, discount_position: 'before_gst', show_total_only: false, gst_label_only: false,
+  discount_type: 'none', discount_value: 0, discount_position: 'before_gst', show_total_only: false, gst_label_only: false, visible_rows: '{"gtotal":true,"less":true,"after_discount":true,"gst":true,"final_total":true}',
   notes: '', status: 'Draft', total_amount: 0,
 });
 const emptyItem = (sno: number): QuotationItem => ({ sno, particulars: '', qty: 1, load_value: 0, rate: 0, amount: 0 });
@@ -164,6 +164,10 @@ export default function Quotation() {
     if (!printWindow || !previewQ) return;
     const its = previewItems;
     const { subtotal, discountAmt, gstAmt, subtotalPlusGst, total } = calcPreviewTotals(previewQ, its);
+    // Visibility helper for print
+    let vr: Record<string,boolean> = {gtotal:true,less:true,after_discount:true,gst:true,final_total:true};
+    try { vr = {...vr, ...JSON.parse(previewQ.visible_rows||'{}')}; } catch {}
+    const V = (key: string) => vr[key] !== false;
 
     const itemRows = Array.from({ length: Math.max(its.length, 6) }, (_, idx) => {
       const it = its[idx];
@@ -191,21 +195,21 @@ export default function Quotation() {
     if (previewQ.show_total_only) {
       totalRows = RB('TOTAL', fmtAmt(total));
     } else {
-      totalRows += R('G.TOTAL', fmtAmt(subtotal));
+      if(V('gtotal')) totalRows += R('G.TOTAL', fmtAmt(subtotal));
       if (pos === 'before_gst') {
-        if (discountAmt>0) { totalRows += R(discLabel2, `- ${fmtAmt(discountAmt)}`, '', '#dc2626'); totalRows += R('TOTAL', fmtAmt(subtotal-discountAmt)); }
+        if (discountAmt>0) { if(V('less')) totalRows += R(discLabel2, `- ${fmtAmt(discountAmt)}`, '', '#dc2626'); if(V('after_discount')) totalRows += R('TOTAL', fmtAmt(subtotal-discountAmt)); }
         if (previewQ.gst_applicable) {
-          if (previewQ.gst_label_only) { totalRows += REmpty(`GSTN@${previewQ.gst_rate}%<br/>EXTRA`); totalRows += RB('TOTAL', ''); }
-          else { totalRows += R(`GSTN@${previewQ.gst_rate}%<br/>EXTRA`, fmtAmt(gstAmt), '', '#1e3a8a'); totalRows += RB('TOTAL', fmtAmt(total)); }
-        } else { totalRows += RB('TOTAL', fmtAmt(total)); }
+          if (previewQ.gst_label_only) { if(V('gst')) totalRows += REmpty(`GSTN@${previewQ.gst_rate}%<br/>EXTRA`); if(V('final_total')) totalRows += RB('TOTAL', ''); }
+          else { if(V('gst')) totalRows += R(`GSTN@${previewQ.gst_rate}%<br/>EXTRA`, fmtAmt(gstAmt), '', '#1e3a8a'); if(V('final_total')) totalRows += RB('TOTAL', fmtAmt(total)); }
+        } else { if(V('final_total')) totalRows += RB('TOTAL', fmtAmt(total)); }
       } else if (pos === 'after_gst') {
-        if (previewQ.gst_applicable) { totalRows += R(`GSTN@${previewQ.gst_rate}%<br/>EXTRA`, fmtAmt(gstAmt), '', '#1e3a8a'); totalRows += R('TOTAL', fmtAmt(subtotalPlusGst)); }
-        if (discountAmt>0) totalRows += R(discLabel2, `- ${fmtAmt(discountAmt)}`, '', '#dc2626');
-        totalRows += RB('TOTAL', fmtAmt(total));
+        if (previewQ.gst_applicable) { if(V('gst')) totalRows += R(`GSTN@${previewQ.gst_rate}%<br/>EXTRA`, fmtAmt(gstAmt), '', '#1e3a8a'); totalRows += R('TOTAL', fmtAmt(subtotalPlusGst)); }
+        if (discountAmt>0 && V('less')) totalRows += R(discLabel2, `- ${fmtAmt(discountAmt)}`, '', '#dc2626');
+        if(V('final_total')) totalRows += RB('TOTAL', fmtAmt(total));
       } else {
-        if (previewQ.gst_applicable) { totalRows += REmpty(`GSTN@${previewQ.gst_rate}%<br/>EXTRA`); totalRows += R('TOTAL', fmtAmt(subtotalPlusGst)); }
-        if (discountAmt>0) totalRows += R(discLabel2, `- ${fmtAmt(discountAmt)}`, '', '#dc2626');
-        totalRows += RB('TOTAL', fmtAmt(total));
+        if (previewQ.gst_applicable) { if(V('gst')) totalRows += REmpty(`GSTN@${previewQ.gst_rate}%<br/>EXTRA`); totalRows += R('TOTAL', fmtAmt(subtotalPlusGst)); }
+        if (discountAmt>0 && V('less')) totalRows += R(discLabel2, `- ${fmtAmt(discountAmt)}`, '', '#dc2626');
+        if(V('final_total')) totalRows += RB('TOTAL', fmtAmt(total));
       }
     }
 
@@ -303,6 +307,22 @@ export default function Quotation() {
 
   const filtered = quotations.filter(q => !search || q.customer_name.toLowerCase().includes(search.toLowerCase()) || q.quotation_no.toLowerCase().includes(search.toLowerCase()) || (q.subject || '').toLowerCase().includes(search.toLowerCase()));
   const { subtotal, discountAmt, gstAmt, subtotalPlusGst, total } = calcTotals();
+
+  // Visible rows helper
+  const getVR = (f = form) => {
+    try { return JSON.parse(f.visible_rows || '{}'); } catch { return {}; }
+  };
+  const isVisible = (key: string) => { const vr = getVR(); return vr[key] !== false; };
+  const toggleRow = (key: string) => {
+    const vr = getVR();
+    vr[key] = !isVisible(key);
+    setForm({...form, visible_rows: JSON.stringify(vr)});
+  };
+  const EyeBtn = ({rowKey}: {rowKey: string}) => (
+    <button onClick={()=>toggleRow(rowKey)} className="ml-2 opacity-50 hover:opacity-100 transition-opacity flex-shrink-0" title={isVisible(rowKey)?'Hide from print':'Show in print'}>
+      {isVisible(rowKey) ? <Eye size={12} className="text-gray-500"/> : <EyeOff size={12} className="text-red-400"/>}
+    </button>
+  );
   const STATUS_COLORS: Record<string, string> = { Draft:'bg-gray-100 text-gray-600', Sent:'bg-blue-100 text-blue-700', Accepted:'bg-green-100 text-green-700', Rejected:'bg-red-100 text-red-700' };
 
   return (
@@ -521,17 +541,29 @@ export default function Quotation() {
                 </div>
 
                 {/* Live Totals */}
-                <div className="bg-gray-50 rounded-2xl p-4 min-w-[220px] space-y-1.5 h-fit">
-                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Summary</p>
-                  <div className="flex justify-between text-sm"><span className="text-gray-500">G. Total</span><span className="font-semibold">₹{subtotal.toLocaleString('en-IN')}</span></div>
-                  {discountAmt>0&&<div className="flex justify-between text-sm"><span className="text-red-500">LESS {form.discount_type==='percent'?`${form.discount_value}%`:'Discount'}</span><span className="font-semibold text-red-500">- ₹{discountAmt.toLocaleString('en-IN')}</span></div>}
-                  {discountAmt>0&&(form.discount_position||'before_gst')==='before_gst'&&<div className="flex justify-between text-sm"><span className="text-gray-500">After Discount</span><span className="font-semibold">₹{(subtotal-discountAmt).toLocaleString('en-IN')}</span></div>}
-                  {form.gst_applicable&&<div className="flex justify-between text-sm"><span className="text-blue-600">GST @{form.gst_rate}%</span><span className="font-semibold text-blue-600">₹{gstAmt.toLocaleString('en-IN')}</span></div>}
-                  <div className="border-t border-gray-200 pt-1.5 flex justify-between">
-                    <span className="font-bold text-gray-800">TOTAL</span>
-                    <span className="font-black text-gray-800 text-lg">₹{total.toLocaleString('en-IN')}</span>
+                <div className="bg-gray-50 rounded-2xl p-4 min-w-[230px] space-y-1.5 h-fit">
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Summary <span className="font-normal normal-case text-gray-400 text-[10px]">👁 = show in print</span></p>
+                  <div className="flex justify-between text-sm items-center gap-1">
+                    <div className="flex items-center gap-1"><span className="text-gray-500">G. Total</span><button onClick={()=>toggleRow('gtotal')} title={isVisible('gtotal')?'Hide':'Show'}>{isVisible('gtotal')?<Eye size={11} className="text-gray-400"/>:<EyeOff size={11} className="text-red-400"/>}</button></div>
+                    <span className={`font-semibold ${!isVisible('gtotal')?'line-through text-gray-300':''}`}>₹{subtotal.toLocaleString('en-IN')}</span>
                   </div>
-                  {form.show_total_only&&<p className="text-[10px] text-amber-600 bg-amber-50 rounded-lg px-2 py-1">ℹ️ Print will show only TOTAL row</p>}
+                  {discountAmt>0&&<div className="flex justify-between text-sm items-center gap-1">
+                    <div className="flex items-center gap-1"><span className="text-red-500">LESS {form.discount_type==='percent'?`${form.discount_value}%`:''}</span><button onClick={()=>toggleRow('less')} title={isVisible('less')?'Hide':'Show'}>{isVisible('less')?<Eye size={11} className="text-gray-400"/>:<EyeOff size={11} className="text-red-400"/>}</button></div>
+                    <span className={`font-semibold text-red-500 ${!isVisible('less')?'line-through text-gray-300':''}`}>- ₹{discountAmt.toLocaleString('en-IN')}</span>
+                  </div>}
+                  {discountAmt>0&&(form.discount_position||'before_gst')==='before_gst'&&<div className="flex justify-between text-sm items-center gap-1">
+                    <div className="flex items-center gap-1"><span className="text-gray-500">After Discount</span><button onClick={()=>toggleRow('after_discount')} title={isVisible('after_discount')?'Hide':'Show'}>{isVisible('after_discount')?<Eye size={11} className="text-gray-400"/>:<EyeOff size={11} className="text-red-400"/>}</button></div>
+                    <span className={`font-semibold ${!isVisible('after_discount')?'line-through text-gray-300':''}`}>₹{(subtotal-discountAmt).toLocaleString('en-IN')}</span>
+                  </div>}
+                  {form.gst_applicable&&<div className="flex justify-between text-sm items-center gap-1">
+                    <div className="flex items-center gap-1"><span className="text-blue-600">GST @{form.gst_rate}%</span><button onClick={()=>toggleRow('gst')} title={isVisible('gst')?'Hide':'Show'}>{isVisible('gst')?<Eye size={11} className="text-gray-400"/>:<EyeOff size={11} className="text-red-400"/>}</button></div>
+                    <span className={`font-semibold text-blue-600 ${!isVisible('gst')?'line-through text-gray-300':''}`}>{form.gst_label_only?'(label)':'₹'+gstAmt.toLocaleString('en-IN')}</span>
+                  </div>}
+                  <div className="border-t border-gray-200 pt-1.5 flex justify-between items-center gap-1">
+                    <div className="flex items-center gap-1"><span className="font-bold text-gray-800">TOTAL</span><button onClick={()=>toggleRow('final_total')} title={isVisible('final_total')?'Hide':'Show'}>{isVisible('final_total')?<Eye size={11} className="text-gray-400"/>:<EyeOff size={11} className="text-red-400"/>}</button></div>
+                    <span className={`font-black text-gray-800 text-lg ${!isVisible('final_total')?'line-through text-gray-300':''}`}>₹{total.toLocaleString('en-IN')}</span>
+                  </div>
+                  {form.show_total_only&&<p className="text-[10px] text-amber-600 bg-amber-50 rounded-lg px-2 py-1">ℹ️ Show TOTAL only mode on</p>}
                 </div>
               </div>
             </div>
