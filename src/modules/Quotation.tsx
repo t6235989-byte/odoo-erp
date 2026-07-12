@@ -68,7 +68,7 @@ export default function Quotation() {
   };
   const openPreview = (q: Quotation) => {
     setPreviewQ(q);
-    setPreviewItems((items[q.id!] || []).filter(i => i.particulars).sort((a, b) => a.sno - b.sno));
+    setPreviewItems((items[q.id!] || []).filter(i => i.particulars && i.particulars.trim()).sort((a, b) => a.sno - b.sno));
     setShowPreview(true);
   };
 
@@ -169,7 +169,20 @@ export default function Quotation() {
     try { vr = {...vr, ...JSON.parse(previewQ.visible_rows||'{}')}; } catch {}
     const V = (key: string) => vr[key] !== false;
 
-    const itemRows = Array.from({ length: Math.max(its.length, 6) }, (_, idx) => {
+    const filledIts = its.filter(it => it.particulars && it.particulars.trim());
+    const blankRows = Math.max(0, 6 - filledIts.length);
+    const itemRows = [
+      ...filledIts.map((it, idx) => `<tr style="height:40px">
+        <td style="border:1px solid #000;text-align:center;font-size:11pt;font-weight:bold">${idx + 1}</td>
+        <td style="border:1px solid #000;padding:4px 8px;font-size:11pt;font-weight:bold">${it.particulars}</td>
+        <td style="border:1px solid #000;text-align:center;font-size:11pt;font-weight:bold">${it.qty}</td>
+        <td style="border:1px solid #000;text-align:center;font-size:11pt;font-weight:bold">${it.load_value||''}</td>
+        <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:11pt;font-weight:bold">${it.rate?fmtAmt(it.rate):''}</td>
+        <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:11pt;font-weight:bold">${it.amount?fmtAmt(it.amount):''}</td>
+      </tr>`),
+      ...Array.from({length:blankRows},()=>`<tr style="height:40px"><td style="border:1px solid #000"></td><td style="border:1px solid #000"></td><td style="border:1px solid #000"></td><td style="border:1px solid #000"></td><td style="border:1px solid #000"></td><td style="border:1px solid #000"></td></tr>`)
+    ].join('');
+    const _unused = Array.from({ length: Math.max(its.length, 6) }, (_, idx) => {
       const it = its[idx];
       return `<tr style="height:40px">
         <td style="border:1px solid #000;text-align:center;font-size:11px;font-weight:bold">${it ? idx + 1 : ''}</td>
@@ -653,6 +666,8 @@ export default function Quotation() {
                         </tr>
                       ):<>{/* Position-aware total rows */}
                         {(()=>{
+                          let pvr: Record<string,boolean> = {gtotal:true,less:true,after_discount:true,gst:true,final_total:true}; try { pvr = {...pvr,...JSON.parse(previewQ.visible_rows||'{}')}; } catch {}
+                          const VP = (k:string) => pvr[k] !== false;
                           const ppos = previewQ.discount_position||'before_gst';
                           const dl = previewQ.discount_type==='percent'?`LESS ${previewQ.discount_value}%`:'LESS';
                           const C4 = {colSpan:4,className:"border border-gray-400"};
@@ -663,22 +678,22 @@ export default function Quotation() {
                             </tr>);
                           const gstLabel = `GSTN@${previewQ.gst_rate}% EXTRA`;
                           return <>
-                            {TL('G.TOTAL',fmtAmt(ps))}
+                            {VP('gtotal')&&TL('G.TOTAL',fmtAmt(ps))}
                             {ppos==='before_gst'&&<>
-                              {pd>0&&TL(dl,`- ${fmtAmt(pd)}`,false,true)}
-                              {pd>0&&TL('TOTAL',fmtAmt(ps-pd))}
-                              {previewQ.gst_applicable&&(previewQ.gst_label_only?<>{TL(gstLabel,'',false,false,true)}{TL('TOTAL','',true,false,true)}</>:<>{TL(gstLabel,fmtAmt(pg))}{TL('TOTAL',fmtAmt(pt),true)}</>)}
-                              {!previewQ.gst_applicable&&TL('TOTAL',fmtAmt(pt),true)}
+                              {pd>0&&VP('less')&&TL(dl,`- ${fmtAmt(pd)}`,false,true)}
+                              {pd>0&&VP('after_discount')&&TL('TOTAL',fmtAmt(ps-pd))}
+                              {previewQ.gst_applicable&&(previewQ.gst_label_only?<>{VP('gst')&&TL(gstLabel,'',false,false,true)}{VP('final_total')&&TL('TOTAL','',true,false,true)}</>:<>{VP('gst')&&TL(gstLabel,fmtAmt(pg))}{VP('final_total')&&TL('TOTAL',fmtAmt(pt),true)}</>)}
+                              {!previewQ.gst_applicable&&VP('final_total')&&TL('TOTAL',fmtAmt(pt),true)}
                             </>}
                             {ppos==='after_gst'&&<>
-                              {previewQ.gst_applicable&&<>{TL(gstLabel,fmtAmt(pg))}{TL('TOTAL',fmtAmt(ps+pg))}</>}
-                              {pd>0&&TL(dl,`- ${fmtAmt(pd)}`,false,true)}
-                              {TL('TOTAL',fmtAmt(pt),true)}
+                              {previewQ.gst_applicable&&<>{VP('gst')&&TL(gstLabel,fmtAmt(pg))}{TL('TOTAL',fmtAmt(ps+pg))}</>}
+                              {pd>0&&VP('less')&&TL(dl,`- ${fmtAmt(pd)}`,false,true)}
+                              {VP('final_total')&&TL('TOTAL',fmtAmt(pt),true)}
                             </>}
                             {ppos==='after_gst_label'&&<>
-                              {previewQ.gst_applicable&&<>{TL(gstLabel,'',false,false,true)}{TL('TOTAL',fmtAmt(ps+pg))}</>}
-                              {pd>0&&TL(dl,`- ${fmtAmt(pd)}`,false,true)}
-                              {TL('TOTAL',fmtAmt(pt),true)}
+                              {previewQ.gst_applicable&&<>{VP('gst')&&TL(gstLabel,'',false,false,true)}{TL('TOTAL',fmtAmt(ps+pg))}</>}
+                              {pd>0&&VP('less')&&TL(dl,`- ${fmtAmt(pd)}`,false,true)}
+                              {VP('final_total')&&TL('TOTAL',fmtAmt(pt),true)}
                             </>}
                           </>;
                         })()}
