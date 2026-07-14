@@ -1,6 +1,36 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Plus, Trash2, Edit2, X, FileText, Download, Search, Eye, EyeOff, Copy } from 'lucide-react';
+import { Plus, Trash2, Edit2, X, FileText, Download, Search, Eye, EyeOff, Copy, Settings, AlignLeft, AlignCenter, AlignRight, Type } from 'lucide-react';
+
+type QTemplate = {
+  showLogo:boolean; logoSize:number;
+  line1:string; line1Size:number; line1Color:string;
+  line2:string; line2Size:number; line2Color:string;
+  email:string; showEmail:boolean;
+  phone:string; showPhone:boolean;
+  address:string; showAddress:boolean;
+  quotationTitle:string; showTitle:boolean;
+  footerNote:string; showFooterNote:boolean;
+  forLine:string; showForLine:boolean;
+  signatoryText:string; showSignatory:boolean;
+  terms:string; showTerms:boolean;
+  respectText:string; showRespect:boolean;
+};
+
+const DEFAULT_TEMPLATE: QTemplate = {
+  showLogo:true, logoSize:75,
+  line1:'PUNJAB HITECH AGRO', line1Size:28, line1Color:'#22c55e',
+  line2:'MACHINERY WORKS', line2Size:24, line2Color:'#1e3a8a',
+  email:'tahir786punjabhitechagro@gmail.com', showEmail:true,
+  phone:'9478660161 , 9463053786', showPhone:true,
+  address:'BHOGLA ROAD, NEAR CITI HOSPITAL, RAJPURA, DISTT. PATIALA, PUNJAB, 140401', showAddress:true,
+  quotationTitle:'QUOTATION', showTitle:true,
+  footerNote:'NOTE : TOTAL PLANT COMPLETE WITHOUT SWITCH STARTER, ELECTRIC WIRING, HUSKER RUBBER ROLL, POLISHER RUBBER, JALI, EMERY SALT, MAIN MOTOR, V-BELT AND PULLY SET, CIVIL WORK, PLUMBER WORK & ABCD PLANT ETC.', showFooterNote:true,
+  forLine:'FOR PUNJAB HITECH AGRO MACHINERY WORKS', showForLine:true,
+  signatoryText:'AUTH. SIGNATORY', showSignatory:true,
+  terms:'*GST 18% ON RICE MACHINERY.\n*QUOTATION IS VALID FOR 15 DAYS.\n*SUBJECT TO RAJPURA JURISDICTION.\n*ADVANCE 25% PAYMENT ON ORDER AND REST ON DELIVERY.\n*FREIGHT CHARGES EXTRA.', showTerms:true,
+  respectText:'RESPECTED SIR, IN REFERENCE TO OUR DISCUSSION, WE ARE PLEASED TO PROVIDE OUR LOWEST PRICE FOR THE AFOREMENTIONED MACHINERY, DETAILED AS FOLLOWS:', showRespect:true,
+};
 
 type QuotationItem = {
   id?: string; quotation_id?: string; sno: number;
@@ -38,8 +68,21 @@ export default function Quotation() {
   const [toast, setToast] = useState('');
   const [previewQ, setPreviewQ] = useState<Quotation | null>(null);
   const [previewItems, setPreviewItems] = useState<QuotationItem[]>([]);
+  const [showTemplateEditor, setShowTemplateEditor] = useState(false);
+  const [template, setTemplate] = useState<QTemplate>(DEFAULT_TEMPLATE);
+  const [templateSaving, setTemplateSaving] = useState(false);
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { loadAll(); loadTemplate(); }, []);
+
+  const loadTemplate = async () => {
+    const { data } = await supabase.from('app_settings').select('value').eq('key','quotation_template').single();
+    if (data?.value) { try { setTemplate({...DEFAULT_TEMPLATE,...JSON.parse(data.value)}); } catch {} }
+  };
+  const saveTemplate = async (t: QTemplate) => {
+    setTemplateSaving(true);
+    await supabase.from('app_settings').upsert({key:'quotation_template',value:JSON.stringify(t)},{onConflict:'key'});
+    setTemplateSaving(false); showToast('Template saved ✓');
+  };
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
   const loadAll = async () => {
@@ -164,6 +207,7 @@ export default function Quotation() {
     if (!printWindow || !previewQ) return;
     const its = previewItems;
     const { subtotal, discountAmt, gstAmt, subtotalPlusGst, total } = calcPreviewTotals(previewQ, its);
+    const tmpl = template; // use current template in print
     // Visibility helper for print
     let vr: Record<string,boolean> = {gtotal:true,less:true,after_discount:true,gst:true,final_total:true};
     try { vr = {...vr, ...JSON.parse(previewQ.visible_rows||'{}')}; } catch {}
@@ -246,14 +290,14 @@ export default function Quotation() {
     <div class="page">
       <!-- Header -->
       <div style="display:flex;align-items:flex-start;margin-bottom:6px">
-        <img src="/logo.png" style="width:75px;height:75px;object-fit:contain;margin-right:12px;flex-shrink:0" onerror="this.style.display='none'"/>
+        ${template.showLogo ? `<img src="/logo.png" style="width:${template.logoSize}px;height:${template.logoSize}px;object-fit:contain;margin-right:12px;flex-shrink:0" onerror="this.style.display='none'"/>` : ''}
         <div style="flex:1">
-          <div style="text-align:right;font-size:10pt;font-weight:bold">E-mail : tahir786punjabhitechagro@gmail.com</div>
-          <div style="font-size:28pt;font-weight:900;color:#22c55e;letter-spacing:3px;line-height:1.1">PUNJAB HITECH AGRO</div>
-          <div style="font-size:24pt;font-weight:900;color:#1e3a8a;letter-spacing:3px;line-height:1.1">MACHINERY WORKS</div>
+          ${template.showEmail ? `<div style="text-align:right;font-size:10pt;font-weight:bold">E-mail : ${template.email}</div>` : ''}
+          ${template.line1 ? `<div style="font-size:${template.line1Size}pt;font-weight:900;color:${template.line1Color};letter-spacing:3px;line-height:1.1">${template.line1}</div>` : ''}
+          ${template.line2 ? `<div style="font-size:${template.line2Size}pt;font-weight:900;color:${template.line2Color};letter-spacing:3px;line-height:1.1">${template.line2}</div>` : ''}
           <div style="display:flex;justify-content:space-between;margin-top:3px">
-            <span style="font-size:9pt;font-weight:bold">OFFICE : BHOGLA ROAD, NEAR CITI HOSPITAL, RAJPURA, DISTT. PATIALA, PUNJAB, 140401</span>
-            <span style="font-size:9pt;font-weight:bold;white-space:nowrap;margin-left:8px">M : 9478660161 , 9463053786</span>
+            ${template.showAddress ? `<span style="font-size:9pt;font-weight:bold">OFFICE : ${template.address}</span>` : ''}
+            ${template.showPhone ? `<span style="font-size:9pt;font-weight:bold;white-space:nowrap;margin-left:8px">M : ${template.phone}</span>` : ''}
           </div>
         </div>
       </div>
@@ -268,7 +312,7 @@ export default function Quotation() {
           ${previewQ.customer_mobile ? `<div style="font-size:11pt;font-weight:bold">M O B - ${previewQ.customer_mobile}</div>` : ''}
         </div>
         <div style="text-align:center;flex-shrink:0;padding:0 20px">
-          <div style="font-size:15pt;font-weight:900;text-decoration:underline">QUOTATION</div>
+          ${template.showTitle ? `<div style="font-size:15pt;font-weight:900;text-decoration:underline">${template.quotationTitle}</div>` : ""}
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-size:11pt;font-weight:bold">Dated- ${fmt(previewQ.date)}</div>
@@ -277,7 +321,7 @@ export default function Quotation() {
       </div>
 
       ${previewQ.subject ? `<div style="font-size:11pt;font-weight:bold;text-decoration:underline;margin:5px 0">S U B J E C T : ${previewQ.subject.toUpperCase()}</div>` : ''}
-      <div style="font-size:10pt;font-weight:bold;margin:5px 0;line-height:1.5">R E S P E C T E D &nbsp; S I R , &nbsp; I N &nbsp; R E F E R E N C E &nbsp; T O &nbsp; O U R &nbsp; D I S C U S S I O N , &nbsp; W E &nbsp; A R E &nbsp; P L E A S E D &nbsp; T O &nbsp; P R O V I D E &nbsp; O U R &nbsp; L O W E S T &nbsp; P R I C E &nbsp; F O R &nbsp; T H E &nbsp; A F O R E M E N T I O N E D &nbsp; M A C H I N E R Y , &nbsp; D E T A I L E D &nbsp; A S &nbsp; F O L L O W S :</div>
+      ${template.showRespect ? `<div style="font-size:10pt;font-weight:bold;margin:5px 0;line-height:1.5">${template.respectText}</div>` : ''}
 
       <!-- Items Table -->
       <table style="width:100%;border-collapse:collapse;margin-top:6px">
@@ -298,20 +342,12 @@ export default function Quotation() {
       </table>
 
       <!-- Notes -->
-      <div style="margin-top:14px;font-size:9.5pt;font-weight:bold;line-height:1.5">
-        NOTE : TOTAL PLANT COMPLETE WITHOUT SWITCH STARTER, ELECTRIC WIRING, HUSKER RUBBER ROLL, POLISHER RUBBER, JALI, EMERY SALT, MAIN MOTOR, V-BELT AND PULLY SET, CIVIL WORK, PLUMBER WORK &amp; ABCD PLANT ETC.
-      </div>
+      ${template.showFooterNote ? `<div style="margin-top:14px;font-size:9.5pt;font-weight:bold;line-height:1.5">${template.footerNote}</div>` : ''}
       ${previewQ.notes ? `<div style="margin-top:4px;font-size:9.5pt;font-weight:bold">${previewQ.notes}</div>` : ''}
 
-      <div style="margin-top:10px;font-size:11pt;font-weight:bold;font-style:italic;color:#1e3a8a">FOR PUNJAB HITECH AGRO MACHINERY WORKS</div>
-      <div style="margin-top:14px;font-size:11pt;font-weight:bold;color:#1e3a8a">AUTH. SIGNATORY</div>
-      <div style="margin-top:6px;font-size:9.5pt;font-weight:bold;line-height:1.8">
-        *GST 18% ON RICE MACHINERY.<br/>
-        *QUOTATION IS VALID FOR 15 DAYS.<br/>
-        *SUBJECT TO RAJPURA JURISDICTION.<br/>
-        *ADVANCE 25% PAYMENT ON ORDER AND REST ON DELIVERY.<br/>
-        *FREIGHT CHARGES EXTRA.
-      </div>
+      ${template.showForLine ? `<div style="margin-top:10px;font-size:11pt;font-weight:bold;font-style:italic;color:#1e3a8a">${template.forLine}</div>` : ''}
+      ${template.showSignatory ? `<div style="margin-top:14px;font-size:11pt;font-weight:bold;color:#1e3a8a">${template.signatoryText}</div>` : ''}
+      ${template.showTerms ? `<div style="margin-top:6px;font-size:9.5pt;font-weight:bold;line-height:1.8">${template.terms.replace(/\n/g,'<br/>')}</div>` : ''}
       <hr style="border:1px solid #000;margin-top:14px"/>
     </div>
     <script>window.onload=()=>{window.print();}</script></body></html>`);
@@ -357,6 +393,9 @@ export default function Quotation() {
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search customer, quotation no..."
             className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 shadow-sm"/>
         </div>
+        <button onClick={()=>setShowTemplateEditor(true)} className="flex items-center gap-2 px-4 py-2.5 bg-gray-700 hover:bg-gray-800 text-white rounded-xl text-sm font-semibold shadow-sm">
+          <Settings size={15}/> Template
+        </button>
         <button onClick={openNew} className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold shadow-sm">
           <Plus size={15}/> New Quotation
         </button>
@@ -711,6 +750,170 @@ export default function Quotation() {
           </div>
         );
       })()}
+      {/* ── Template Editor Modal ── */}
+      {showTemplateEditor&&(
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl my-4">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white rounded-t-3xl z-10">
+              <h2 className="font-bold text-gray-800 text-lg">⚙️ Quotation Template Editor</h2>
+              <button onClick={()=>setShowTemplateEditor(false)} className="w-8 h-8 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center"><X size={15}/></button>
+            </div>
+            <div className="p-6 space-y-5">
+
+              {/* Live Preview Header */}
+              <div className="bg-gray-50 border-2 border-dashed border-gray-200 rounded-2xl p-4">
+                <p className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-wide">Live Preview</p>
+                <div className="flex items-start gap-3">
+                  {template.showLogo&&<img src="/logo.png" alt="Logo" style={{width:template.logoSize,height:template.logoSize}} className="object-contain flex-shrink-0" onError={e=>{(e.target as any).style.display='none'}}/>}
+                  <div className="flex-1">
+                    {template.showEmail&&<div className="text-right text-[10px] font-semibold text-gray-600">E-mail : {template.email}</div>}
+                    {template.line1&&<div className="font-black leading-tight" style={{fontSize:template.line1Size*0.7,color:template.line1Color}}>{template.line1}</div>}
+                    {template.line2&&<div className="font-black leading-tight" style={{fontSize:template.line2Size*0.7,color:template.line2Color}}>{template.line2}</div>}
+                    <div className="flex justify-between mt-1">
+                      {template.showAddress&&<span className="text-[9px] text-gray-500">{template.address}</span>}
+                      {template.showPhone&&<span className="text-[9px] text-gray-500 ml-2">M: {template.phone}</span>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Logo */}
+              <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-bold text-gray-700">🖼️ Logo</p>
+                  <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={template.showLogo} onChange={e=>setTemplate({...template,showLogo:e.target.checked})} className="w-4 h-4"/><span className="text-xs text-gray-600">Show Logo</span></label>
+                </div>
+                {template.showLogo&&<div><label className="text-xs text-gray-600">Logo Size (px)</label>
+                  <input type="range" min="40" max="120" value={template.logoSize} onChange={e=>setTemplate({...template,logoSize:Number(e.target.value)})} className="w-full"/>
+                  <span className="text-xs text-gray-500">{template.logoSize}px</span>
+                </div>}
+              </div>
+
+              {/* Company Name Lines */}
+              <div className="bg-green-50 rounded-2xl p-4 space-y-3">
+                <p className="text-sm font-bold text-gray-700">🏢 Company Name</p>
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-gray-600">Line 1 (e.g. PUNJAB HITECH AGRO)</label>
+                  <input value={template.line1} onChange={e=>setTemplate({...template,line1:e.target.value})} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-200 bg-white"/>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><label className="text-xs text-gray-500">Font Size (pt)</label>
+                      <input type="number" value={template.line1Size} onChange={e=>setTemplate({...template,line1Size:Number(e.target.value)})} className="w-full border border-gray-200 rounded-xl px-3 py-1.5 text-sm focus:outline-none bg-white"/></div>
+                    <div><label className="text-xs text-gray-500">Color</label>
+                      <input type="color" value={template.line1Color} onChange={e=>setTemplate({...template,line1Color:e.target.value})} className="w-full h-9 border border-gray-200 rounded-xl px-1 py-1 bg-white cursor-pointer"/></div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-gray-600">Line 2 (e.g. MACHINERY WORKS)</label>
+                  <input value={template.line2} onChange={e=>setTemplate({...template,line2:e.target.value})} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-200 bg-white"/>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><label className="text-xs text-gray-500">Font Size (pt)</label>
+                      <input type="number" value={template.line2Size} onChange={e=>setTemplate({...template,line2Size:Number(e.target.value)})} className="w-full border border-gray-200 rounded-xl px-3 py-1.5 text-sm focus:outline-none bg-white"/></div>
+                    <div><label className="text-xs text-gray-500">Color</label>
+                      <input type="color" value={template.line2Color} onChange={e=>setTemplate({...template,line2Color:e.target.value})} className="w-full h-9 border border-gray-200 rounded-xl px-1 py-1 bg-white cursor-pointer"/></div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Contact Info */}
+              <div className="bg-blue-50 rounded-2xl p-4 space-y-3">
+                <p className="text-sm font-bold text-gray-700">📞 Contact Info</p>
+                {[
+                  {key:'email',label:'Email',showKey:'showEmail'},
+                  {key:'phone',label:'Phone / Mobile',showKey:'showPhone'},
+                  {key:'address',label:'Office Address',showKey:'showAddress'},
+                ].map(({key,label,showKey})=>(
+                  <div key={key} className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-gray-600">{label}</label>
+                      <label className="flex items-center gap-1 cursor-pointer">
+                        <input type="checkbox" checked={(template as any)[showKey]} onChange={e=>setTemplate({...template,[showKey]:e.target.checked})} className="w-3.5 h-3.5"/>
+                        <span className="text-[10px] text-gray-500">Show</span>
+                      </label>
+                    </div>
+                    <input value={(template as any)[key]} onChange={e=>setTemplate({...template,[key]:e.target.value})}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white"/>
+                  </div>
+                ))}
+              </div>
+
+              {/* Quotation Title */}
+              <div className="bg-purple-50 rounded-2xl p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-bold text-gray-700">📋 Quotation Title</p>
+                  <label className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={template.showTitle} onChange={e=>setTemplate({...template,showTitle:e.target.checked})} className="w-4 h-4"/><span className="text-xs text-gray-500">Show</span></label>
+                </div>
+                <input value={template.quotationTitle} onChange={e=>setTemplate({...template,quotationTitle:e.target.value})}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200 bg-white"/>
+              </div>
+
+              {/* Respected Sir Text */}
+              <div className="bg-amber-50 rounded-2xl p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-bold text-gray-700">✉️ Opening Paragraph</p>
+                  <label className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={template.showRespect} onChange={e=>setTemplate({...template,showRespect:e.target.checked})} className="w-4 h-4"/><span className="text-xs text-gray-500">Show</span></label>
+                </div>
+                <textarea value={template.respectText} onChange={e=>setTemplate({...template,respectText:e.target.value})} rows={3}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200 bg-white"/>
+              </div>
+
+              {/* Footer Note */}
+              <div className="bg-orange-50 rounded-2xl p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-bold text-gray-700">📝 Footer Note</p>
+                  <label className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={template.showFooterNote} onChange={e=>setTemplate({...template,showFooterNote:e.target.checked})} className="w-4 h-4"/><span className="text-xs text-gray-500">Show</span></label>
+                </div>
+                <textarea value={template.footerNote} onChange={e=>setTemplate({...template,footerNote:e.target.value})} rows={3}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 bg-white"/>
+              </div>
+
+              {/* For Line & Signatory */}
+              <div className="bg-indigo-50 rounded-2xl p-4 space-y-3">
+                <p className="text-sm font-bold text-gray-700">✍️ Signature Section</p>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-gray-600">For Line</label>
+                    <label className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={template.showForLine} onChange={e=>setTemplate({...template,showForLine:e.target.checked})} className="w-3.5 h-3.5"/><span className="text-[10px] text-gray-500">Show</span></label>
+                  </div>
+                  <input value={template.forLine} onChange={e=>setTemplate({...template,forLine:e.target.value})}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 bg-white"/>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-gray-600">Signatory Text</label>
+                    <label className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={template.showSignatory} onChange={e=>setTemplate({...template,showSignatory:e.target.checked})} className="w-3.5 h-3.5"/><span className="text-[10px] text-gray-500">Show</span></label>
+                  </div>
+                  <input value={template.signatoryText} onChange={e=>setTemplate({...template,signatoryText:e.target.value})}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 bg-white"/>
+                </div>
+              </div>
+
+              {/* Terms */}
+              <div className="bg-red-50 rounded-2xl p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-bold text-gray-700">📜 Terms & Conditions</p>
+                  <label className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={template.showTerms} onChange={e=>setTemplate({...template,showTerms:e.target.checked})} className="w-4 h-4"/><span className="text-xs text-gray-500">Show</span></label>
+                </div>
+                <textarea value={template.terms} onChange={e=>setTemplate({...template,terms:e.target.value})} rows={5}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-200 bg-white font-mono"/>
+                <p className="text-[10px] text-gray-400">Use new line for each term. Each line prints on a new line.</p>
+              </div>
+
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-between items-center sticky bottom-0 bg-white rounded-b-3xl">
+              <button onClick={()=>{ setTemplate(DEFAULT_TEMPLATE); }} className="px-4 py-2 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-xl">Reset to Default</button>
+              <div className="flex gap-3">
+                <button onClick={()=>setShowTemplateEditor(false)} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">Cancel</button>
+                <button onClick={()=>saveTemplate(template).then(()=>setShowTemplateEditor(false))} disabled={templateSaving}
+                  className="px-6 py-2.5 bg-gray-800 hover:bg-gray-900 text-white rounded-xl text-sm font-semibold disabled:opacity-60">
+                  {templateSaving?'Saving...':'💾 Save Template'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
