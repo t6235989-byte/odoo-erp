@@ -354,7 +354,16 @@ export default function Quotation() {
     printWindow.document.close();
   };
 
-  const filtered = quotations.filter(q => !search || q.customer_name.toLowerCase().includes(search.toLowerCase()) || q.quotation_no.toLowerCase().includes(search.toLowerCase()) || (q.subject || '').toLowerCase().includes(search.toLowerCase()));
+  const filtered = quotations.filter(q => {
+    if (!search) return true;
+    const q2 = search.toLowerCase();
+    // Search in all quotation fields
+    const qFields = [q.quotation_no, q.customer_name, q.customer_address, q.customer_mobile, q.subject, q.notes].filter(Boolean).join(' ').toLowerCase();
+    if (qFields.includes(q2)) return true;
+    // Search in items particulars
+    const qItems = (items[q.id!] || []).map(i => i.particulars).filter(Boolean).join(' ').toLowerCase();
+    return qItems.includes(q2);
+  });
   const { subtotal, discountAmt, gstAmt, subtotalPlusGst, total } = calcTotals();
 
   // Visible rows helper
