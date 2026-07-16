@@ -49,6 +49,12 @@ const tables = [
   { key: 'online_orders',     label: 'Online Orders',       icon: '🛒', color: '#2563EB' },
   { key: 'contacts',          label: 'Contacts',            icon: '📒', color: '#0891B2' },
   { key: 'contact_history',   label: 'Contact History',     icon: '📋', color: '#0891B2' },
+  { key: 'contact_categories',label: 'Contact Categories',  icon: '🏷️', color: '#0891B2' },
+  { key: 'contact_documents', label: 'Contact Documents',   icon: '📎', color: '#7C3AED' },
+  { key: 'quotations',        label: 'Quotations',          icon: '📄', color: '#0891B2' },
+  { key: 'quotation_items',   label: 'Quotation Items',     icon: '📝', color: '#0891B2' },
+  { key: 'purchase_credit_notes', label: 'Credit Notes',   icon: '📝', color: '#DC2626' },
+  { key: 'sales_order_items', label: 'Sales Order Items',   icon: '📦', color: '#6366F1' },
 ];
 
 const Backup: React.FC = () => {
