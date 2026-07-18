@@ -39,7 +39,8 @@ type QuotationItem = {
 type Quotation = {
   id?: string; quotation_no: string; date: string;
   customer_name: string; customer_address: string; customer_mobile: string;
-  subject: string; gst_rate: number; gst_applicable: boolean;
+  subject: string; customer_gstin: string; our_gstin: string; extra_fields: string;
+  gst_rate: number; gst_applicable: boolean;
   discount_type: string; discount_value: number; discount_position: string; show_total_only: boolean; gst_label_only: boolean; visible_rows: string;
   notes: string; status: string; total_amount: number;
 };
@@ -47,7 +48,7 @@ type Quotation = {
 const emptyQ = (): Quotation => ({
   quotation_no: '', date: new Date().toISOString().split('T')[0],
   customer_name: '', customer_address: '', customer_mobile: '',
-  subject: '', gst_rate: 18, gst_applicable: true,
+  subject: '', customer_gstin: '', our_gstin: '', extra_fields: '[]', gst_rate: 18, gst_applicable: true,
   discount_type: 'none', discount_value: 0, discount_position: 'before_gst', show_total_only: false, gst_label_only: false, visible_rows: '{"gtotal":true,"less":true,"after_discount":true,"gst":true,"final_total":true}',
   notes: '', status: 'Draft', total_amount: 0,
 });
@@ -208,6 +209,9 @@ export default function Quotation() {
     const its = previewItems;
     const { subtotal, discountAmt, gstAmt, subtotalPlusGst, total } = calcPreviewTotals(previewQ, its);
     const tmpl = template; // use current template in print
+    let ef: {label:string;value:string;position:string;show:boolean}[] = [];
+    try { ef = JSON.parse(previewQ.extra_fields||'[]'); } catch {}
+    const efAt = (pos:string) => ef.filter(f=>f.show&&f.position===pos).map(f=>`<div style="font-size:10pt;font-weight:bold">${f.label}${f.label&&f.value?' : ':''}${f.value}</div>`).join('');
     // Visibility helper for print
     let vr: Record<string,boolean> = {gtotal:true,less:true,after_discount:true,gst:true,final_total:true};
     try { vr = {...vr, ...JSON.parse(previewQ.visible_rows||'{}')}; } catch {}
@@ -310,6 +314,12 @@ export default function Quotation() {
           <div style="font-size:11pt;font-weight:bold;margin-top:3px">M / s - ${previewQ.customer_name.toUpperCase()}</div>
           ${previewQ.customer_address ? `<div style="font-size:11pt;font-weight:bold">A D D - ${previewQ.customer_address.toUpperCase()}</div>` : ''}
           ${previewQ.customer_mobile ? `<div style="font-size:11pt;font-weight:bold">M O B - ${previewQ.customer_mobile}</div>` : ''}
+          ${previewQ.customer_gstin ? `<div style="font-size:10pt;font-weight:bold">G S T N - ${previewQ.customer_gstin}</div>` : ''}
+          ${efAt('customer')}
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          ${previewQ.our_gstin ? `<div style="font-size:10pt;font-weight:bold">Our GSTIN: ${previewQ.our_gstin}</div>` : ''}
+          ${efAt('header')}
         </div>
         <div style="text-align:center;flex-shrink:0;padding:0 20px">
           ${template.showTitle ? `<div style="font-size:15pt;font-weight:900;text-decoration:underline">${template.quotationTitle}</div>` : ""}
@@ -342,6 +352,7 @@ export default function Quotation() {
       </table>
 
       <!-- Notes -->
+      ${efAt('below_table') ? `<div style="margin-top:8px;font-size:10pt;font-weight:bold">${efAt('below_table')}</div>` : ''}
       ${template.showFooterNote ? `<div style="margin-top:14px;font-size:9.5pt;font-weight:bold;line-height:1.5">${template.footerNote}</div>` : ''}
       ${previewQ.notes ? `<div style="margin-top:4px;font-size:9.5pt;font-weight:bold">${previewQ.notes}</div>` : ''}
 
@@ -490,6 +501,73 @@ export default function Quotation() {
                 <div><label className="block text-xs font-semibold text-gray-600 mb-1">Subject</label>
                   <input value={form.subject} onChange={e=>setForm({...form,subject:e.target.value})} placeholder="e.g. Rice Milling Plant Machinery"
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white"/></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="block text-xs font-semibold text-gray-600 mb-1">Party GST No.</label>
+                    <input value={form.customer_gstin||''} onChange={e=>setForm({...form,customer_gstin:e.target.value})} placeholder="e.g. 03ABCDE1234F1Z5"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white font-mono"/></div>
+                  <div><label className="block text-xs font-semibold text-gray-600 mb-1">Our GST No.</label>
+                    <input value={form.our_gstin||''} onChange={e=>setForm({...form,our_gstin:e.target.value})} placeholder="e.g. 03AMDPT2761L1ZV"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white font-mono"/></div>
+                </div>
+              </div>
+
+              {/* Extra Custom Fields */}
+              <div className="bg-violet-50 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold text-violet-700 uppercase tracking-wide">➕ Custom Fields</p>
+                  <button onClick={()=>{
+                    const ef = JSON.parse(form.extra_fields||'[]');
+                    ef.push({label:'',value:'',position:'customer',show:true});
+                    setForm({...form,extra_fields:JSON.stringify(ef)});
+                  }} className="flex items-center gap-1 px-3 py-1 bg-violet-600 text-white rounded-lg text-xs font-semibold hover:bg-violet-700">
+                    <Plus size={12}/> Add Field
+                  </button>
+                </div>
+                {(()=>{
+                  let ef: {label:string;value:string;position:string;show:boolean}[] = [];
+                  try { ef = JSON.parse(form.extra_fields||'[]'); } catch {}
+                  return ef.length===0?(
+                    <p className="text-xs text-gray-400 text-center py-2">No custom fields. Click "+ Add Field" to add GST No., Reference No., PO No., etc.</p>
+                  ):(
+                    <div className="space-y-2">
+                      {ef.map((f,i)=>(
+                        <div key={i} className="bg-white rounded-xl p-3 space-y-2 border border-violet-100">
+                          <div className="flex gap-2">
+                            <div className="flex-1"><label className="text-[10px] font-semibold text-gray-500">Label</label>
+                              <input value={f.label} onChange={e=>{const n=[...ef];n[i]={...n[i],label:e.target.value};setForm({...form,extra_fields:JSON.stringify(n)});}}
+                                placeholder="e.g. GST No., Ref No., PO No."
+                                className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-violet-300"/></div>
+                            <div className="flex-1"><label className="text-[10px] font-semibold text-gray-500">Value</label>
+                              <input value={f.value} onChange={e=>{const n=[...ef];n[i]={...n[i],value:e.target.value};setForm({...form,extra_fields:JSON.stringify(n)});}}
+                                placeholder="e.g. 03ABCDE1234F1Z5"
+                                className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-violet-300"/></div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <label className="text-[10px] font-semibold text-gray-500">Position in Print:</label>
+                            <div className="flex gap-1">
+                              {['header','customer','below_table'].map(pos=>(
+                                <button key={pos} onClick={()=>{const n=[...ef];n[i]={...n[i],position:pos};setForm({...form,extra_fields:JSON.stringify(n)});}}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors ${f.position===pos?'bg-violet-600 text-white border-violet-600':'bg-gray-50 text-gray-500 border-gray-200'}`}>
+                                  {pos==='header'?'📋 Header':pos==='customer'?'👤 Customer':'📊 Below Table'}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="ml-auto flex items-center gap-2">
+                              <label className="flex items-center gap-1 text-[10px] text-gray-500 cursor-pointer">
+                                <input type="checkbox" checked={f.show} onChange={e=>{const n=[...ef];n[i]={...n[i],show:e.target.checked};setForm({...form,extra_fields:JSON.stringify(n)});}} className="w-3 h-3"/>
+                                Show
+                              </label>
+                              <button onClick={()=>{const n=ef.filter((_,j)=>j!==i);setForm({...form,extra_fields:JSON.stringify(n)});}}
+                                className="w-5 h-5 rounded bg-red-50 hover:bg-red-100 flex items-center justify-center">
+                                <X size={10} className="text-red-500"/>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Items */}
@@ -642,6 +720,9 @@ export default function Quotation() {
       {/* Preview Modal */}
       {showPreview&&previewQ&&(()=>{
         const { subtotal: ps, discountAmt: pd, gstAmt: pg, subtotalPlusGst: psg, total: pt } = calcPreviewTotals(previewQ, previewItems);
+        let pef: {label:string;value:string;position:string;show:boolean}[] = [];
+        try { pef = JSON.parse(previewQ.extra_fields||'[]'); } catch {}
+        const pefAt = (pos:string) => pef.filter(f=>f.show&&f.position===pos);
         return(
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto">
             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl my-4">
@@ -673,11 +754,15 @@ export default function Quotation() {
                       <div className="font-bold">M / s - {previewQ.customer_name.toUpperCase()}</div>
                       {previewQ.customer_address&&<div className="font-bold">A D D - {previewQ.customer_address.toUpperCase()}</div>}
                       {previewQ.customer_mobile&&<div className="font-bold">M O B - {previewQ.customer_mobile}</div>}
+                    {previewQ.customer_gstin&&<div className="font-bold text-[10px]">G S T N - {previewQ.customer_gstin}</div>}
+                    {pefAt('customer').map((f,i)=><div key={i} className="font-bold text-[10px]">{f.label}{f.label&&f.value?' : ':''}{f.value}</div>)}
                     </div>
                     <div className="text-center font-black text-base underline">QUOTATION</div>
                     <div className="text-right">
                       <div className="font-bold">Dated- {fmt(previewQ.date)}</div>
                       <div className="font-bold">No: {previewQ.quotation_no}</div>
+                      {previewQ.our_gstin&&<div className="font-bold text-[10px]">Our GSTIN: {previewQ.our_gstin}</div>}
+                      {pefAt('header').map((f,i)=><div key={i} className="font-bold text-[10px]">{f.label}{f.label&&f.value?' : ':''}{f.value}</div>)}
                     </div>
                   </div>
                   {previewQ.subject&&<div className="font-bold underline mb-2">S U B J E C T : {previewQ.subject.toUpperCase()}</div>}
@@ -748,6 +833,7 @@ export default function Quotation() {
                       </>}
                     </tbody>
                   </table>
+                  {pefAt('below_table').length>0&&<div className="mt-2 text-[10px] font-bold">{pefAt('below_table').map((f,i)=><div key={i}>{f.label}{f.label&&f.value?' : ':''}{f.value}</div>)}</div>}
                   <div className="mt-3 text-[9px] font-bold">NOTE : TOTAL PLANT COMPLETE WITHOUT SWITCH STARTER, ELECTRIC WIRING, HUSKER RUBBER ROLL, POLISHER RUBBER, JALI, EMERY SALT, MAIN MOTOR, V-BELT AND PULLY SET, CIVIL WORK, PLUMBER WORK & ABCD PLANT ETC.</div>
                   {previewQ.notes&&<div className="text-[9px] font-bold mt-1">{previewQ.notes}</div>}
                   <div className="mt-2 text-[10px] font-bold italic text-blue-800">FOR PUNJAB HITECH AGRO MACHINERY WORKS</div>
