@@ -8,6 +8,7 @@ import {
 import StatCard from '../components/StatCard';
 import { supabase } from '../lib/supabase';
 import { formatDate } from '../utils/cn';
+import { handleEnterAsTab } from '../lib/formNav';
 
 type AttendanceRecord = {
   id?: string;
@@ -858,7 +859,7 @@ const Attendance: React.FC = () => {
       {/* DOCUMENT UPLOAD MODAL */}
       <AnimatePresence>{showDocModal && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4"
+          className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onKeyDown={handleEnterAsTab}
           onClick={e => { if (e.target === e.currentTarget) setShowDocModal(false); }}>
           <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
             className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
@@ -912,7 +913,7 @@ const Attendance: React.FC = () => {
 
       {/* ATTENDANCE MODAL */}
       <AnimatePresence>{showAttModal && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setShowAttModal(false); }}>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onKeyDown={handleEnterAsTab} onClick={e => { if (e.target === e.currentTarget) setShowAttModal(false); }}>
           <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
             <div className="flex items-center justify-between p-5 border-b border-gray-100">
               <h2 className="font-bold text-gray-800">{editingAtt ? 'Edit Attendance' : 'Mark Attendance'}</h2>
@@ -953,7 +954,7 @@ const Attendance: React.FC = () => {
 
       {/* TASK MODAL */}
       <AnimatePresence>{showTaskModal && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setShowTaskModal(false); }}>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onKeyDown={handleEnterAsTab} onClick={e => { if (e.target === e.currentTarget) setShowTaskModal(false); }}>
           <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
             <div className="flex items-center justify-between p-5 border-b border-gray-100">
               <h2 className="font-bold text-gray-800">{editingTask ? 'Edit Task' : 'Add Work Task'}</h2>
@@ -985,7 +986,7 @@ const Attendance: React.FC = () => {
 
       {/* PAYMENT MODAL */}
       <AnimatePresence>{showPaymentModal && (
-        <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onClick={e=>{if(e.target===e.currentTarget)setShowPaymentModal(false);}}>
+        <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onKeyDown={handleEnterAsTab} onClick={e=>{if(e.target===e.currentTarget)setShowPaymentModal(false);}}>
           <motion.div initial={{scale:0.9,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0.9,opacity:0}} className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
             <div className="flex items-center justify-between p-5 border-b border-gray-100">
               <h2 className="font-bold text-gray-800">{payType === 'return' ? '↩ Record Return' : '💰 Record Payment'} — {selectedEmp}</h2>

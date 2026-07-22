@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Plus, Trash2, Edit2, X, FileText, Download, Search, Eye, EyeOff, Copy, Settings, AlignLeft, AlignCenter, AlignRight, Type } from 'lucide-react';
+import { handleEnterAsTab } from '../lib/formNav';
 
 type QTemplate = {
   showLogo:boolean; logoSize:number;
@@ -486,7 +487,7 @@ export default function Quotation() {
 
       {/* Create/Edit Modal */}
       {showModal&&(
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto" onKeyDown={handleEnterAsTab}>
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl my-4">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white rounded-t-3xl z-10">
               <h2 className="font-bold text-gray-800 text-lg">{editing?'Edit Quotation':'New Quotation'}</h2>
@@ -753,7 +754,7 @@ export default function Quotation() {
         try { pef = JSON.parse(previewQ.extra_fields||'[]'); } catch {}
         const pefAt = (pos:string) => pef.filter(f=>f.show&&f.position===pos);
         return(
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto" onKeyDown={handleEnterAsTab}>
             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl my-4">
               <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white rounded-t-3xl z-10">
                 <h2 className="font-bold text-gray-800">Preview — {previewQ.quotation_no}</h2>
@@ -876,7 +877,7 @@ export default function Quotation() {
       })()}
       {/* ── Template Editor Modal ── */}
       {showTemplateEditor&&(
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto" onKeyDown={handleEnterAsTab}>
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl my-4">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white rounded-t-3xl z-10">
               <h2 className="font-bold text-gray-800 text-lg">⚙️ Quotation Template Editor</h2>

@@ -4,6 +4,7 @@ import { Users, TrendingUp, TrendingDown, IndianRupee, Plus, X, Loader, Edit2, T
 import StatCard from '../components/StatCard';
 import { supabase } from '../lib/supabase';
 import { formatDate } from '../utils/cn';
+import { handleEnterAsTab } from '../lib/formNav';
 
 type Party = { id?: string; name: string; phone: string; email: string; address: string; party_type: string; gstin?: string; };
 type Txn = { id?: string; party_id?: string; party_name: string; transaction_date: string; type: string; amount: number; description: string; reference: string; };
@@ -358,7 +359,7 @@ const PartyLedger: React.FC = () => {
 
       {/* PARTY MODAL */}
       <AnimatePresence>{showPartyModal&&(
-        <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onClick={e=>{if(e.target===e.currentTarget){setShowPartyModal(false);setEditingParty(null);}}}>
+        <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onKeyDown={handleEnterAsTab} onClick={e=>{if(e.target===e.currentTarget){setShowPartyModal(false);setEditingParty(null);}}}>
           <motion.div initial={{scale:0.9,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0.9,opacity:0}} className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
             <div className="flex items-center justify-between p-5 border-b border-gray-100">
               <h2 className="font-bold text-gray-800">{editingParty?'Edit Party':'Add Party'}</h2>
@@ -389,7 +390,7 @@ const PartyLedger: React.FC = () => {
 
       {/* TRANSACTION MODAL */}
       <AnimatePresence>{showTxnModal&&(
-        <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onClick={e=>{if(e.target===e.currentTarget){setShowTxnModal(false);setEditingTxn(null);}}}>
+        <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onKeyDown={handleEnterAsTab} onClick={e=>{if(e.target===e.currentTarget){setShowTxnModal(false);setEditingTxn(null);}}}>
           <motion.div initial={{scale:0.9,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0.9,opacity:0}} className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
             <div className="flex items-center justify-between p-5 border-b border-gray-100">
               <h2 className="font-bold text-gray-800">{editingTxn?'Edit Entry':'New Entry — '+(selectedParty?.name||'')}</h2>

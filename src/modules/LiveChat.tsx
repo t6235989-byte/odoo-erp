@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, CheckCircle, Clock, Star, Plus, X, Loader, Send, Phone, Video, MoreHorizontal, Search } from 'lucide-react';
 import StatCard from '../components/StatCard';
 import { supabase } from '../lib/supabase';
+import { handleEnterAsTab } from '../lib/formNav';
 
 type Conversation = {
   id?: string;
@@ -279,7 +280,7 @@ const LiveChat: React.FC = () => {
       <AnimatePresence>
         {showNewConv && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4"
+            className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onKeyDown={handleEnterAsTab}
             onClick={e => { if (e.target === e.currentTarget) setShowNewConv(false); }}>
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">

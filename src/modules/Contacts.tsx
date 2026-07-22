@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { Phone, Plus, Search, Edit2, Trash2, X, PhoneCall, History, ChevronDown, ChevronUp, FileUp, FileText, Eye, Loader, Settings, Tag } from 'lucide-react';
+import { handleEnterAsTab } from '../lib/formNav';
 
 type Contact = {
   id?: string; name: string; phone: string; phone2: string;
@@ -355,7 +356,7 @@ export default function Contacts() {
 
       {/* ── Category Manager Modal ── */}
       {showCatModal&&(
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onKeyDown={handleEnterAsTab}>
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div>
@@ -410,7 +411,7 @@ export default function Contacts() {
 
       {/* Contact Modal */}
       {showModal&&(
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onKeyDown={handleEnterAsTab}>
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <h3 className="font-bold text-gray-800">{editing?'Edit Contact':'Add Contact'}</h3>
@@ -462,7 +463,7 @@ export default function Contacts() {
 
       {/* History Modal */}
       {showHModal&&(
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onKeyDown={handleEnterAsTab}>
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div><h3 className="font-bold text-gray-800">{editingH?'Edit Entry':'Add Work / Rate'}</h3>
@@ -503,7 +504,7 @@ export default function Contacts() {
 
       {/* Document Upload Modal */}
       {showDocModal&&(
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onKeyDown={handleEnterAsTab}>
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div><h3 className="font-bold text-gray-800">📎 Upload Document</h3>

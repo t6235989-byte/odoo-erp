@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Calendar, Clock, CheckCircle, XCircle, Plus, X, Loader, Edit2, Trash2 } from 'lucide-react';
 import StatCard from '../components/StatCard';
 import { supabase } from '../lib/supabase';
+import { handleEnterAsTab } from '../lib/formNav';
 
 type TimeOff = {
   id?: string;
@@ -109,7 +110,7 @@ const TimeOffModule: React.FC = () => {
       </div>
 
       <AnimatePresence>{showModal&&(
-        <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onClick={e=>{if(e.target===e.currentTarget)closeModal();}}>
+        <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onKeyDown={handleEnterAsTab} onClick={e=>{if(e.target===e.currentTarget)closeModal();}}>
           <motion.div initial={{scale:0.9,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0.9,opacity:0}} className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-5 border-b border-gray-100"><h2 className="font-bold text-gray-800">{editing?'Edit Request':'New Leave Request'}</h2><button onClick={closeModal} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center"><X size={14}/></button></div>
             <div className="p-5 space-y-3">

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FolderOpen, CheckSquare, Clock, Users, Plus, X, Loader, Edit2, Trash2, List, Layout } from 'lucide-react';
 import StatCard from '../components/StatCard';
 import { supabase } from '../lib/supabase';
+import { handleEnterAsTab } from '../lib/formNav';
 
 type Project = {
   id?: string;
@@ -303,7 +304,7 @@ const Project: React.FC = () => {
       <AnimatePresence>
         {showTaskModal && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4"
+            className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onKeyDown={handleEnterAsTab}
             onClick={e => { if (e.target === e.currentTarget) closeTaskModal(); }}>
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
@@ -361,7 +362,7 @@ const Project: React.FC = () => {
       <AnimatePresence>
         {showProjectModal && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4"
+            className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onKeyDown={handleEnterAsTab}
             onClick={e => { if (e.target === e.currentTarget) closeProjectModal(); }}>
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
