@@ -34,7 +34,7 @@ const DEFAULT_TEMPLATE: QTemplate = {
 
 type QuotationItem = {
   id?: string; quotation_id?: string; sno: number;
-  particulars: string; qty: number; load_value: number; rate: number; amount: number;
+  particulars: string; description?: string; qty: number; load_value: number; rate: number; amount: number;
 };
 type Quotation = {
   id?: string; quotation_no: string; date: string;
@@ -52,7 +52,7 @@ const emptyQ = (): Quotation => ({
   discount_type: 'none', discount_value: 0, discount_position: 'before_gst', show_total_only: false, gst_label_only: false, visible_rows: '{"gtotal":true,"less":true,"after_discount":true,"gst":true,"final_total":true}',
   notes: '', status: 'Draft', total_amount: 0,
 });
-const emptyItem = (sno: number): QuotationItem => ({ sno, particulars: '', qty: 1, load_value: 0, rate: 0, amount: 0 });
+const emptyItem = (sno: number): QuotationItem => ({ sno, particulars: '', description: '', qty: 1, load_value: 0, rate: 0, amount: 0 });
 const fmt = (d: string) => { if (!d) return ''; const [y, m, dd] = d.split('-'); return `${dd}-${m}-${y}`; };
 const fmtAmt = (n: number) => '₹ ' + n.toLocaleString('en-IN', { minimumFractionDigits: 0 });
 
@@ -116,9 +116,33 @@ export default function Quotation() {
     setShowPreview(true);
   };
 
+  // Build a lookup of each item's most recently used description/rate/load,
+  // newest quotation first, so typing a familiar item pre-fills its usual details.
+  const particularsHistory = (() => {
+    const sorted = [...quotations].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const map: Record<string, QuotationItem> = {};
+    for (const q of sorted) {
+      for (const it of (items[q.id!] || [])) {
+        const key = it.particulars.trim().toLowerCase();
+        if (key && !map[key]) map[key] = it;
+      }
+    }
+    return map;
+  })();
+  const knownParticulars = Object.values(particularsHistory).map(i => i.particulars);
+
   const updateItem = (idx: number, field: keyof QuotationItem, val: any) => {
     const updated = [...formItems];
     updated[idx] = { ...updated[idx], [field]: val };
+    if (field === 'particulars') {
+      const hist = particularsHistory[String(val).trim().toLowerCase()];
+      if (hist) {
+        updated[idx].description = hist.description;
+        updated[idx].rate = hist.rate;
+        updated[idx].load_value = hist.load_value;
+        updated[idx].amount = updated[idx].qty * updated[idx].rate;
+      }
+    }
     if (field === 'qty' || field === 'rate') updated[idx].amount = updated[idx].qty * updated[idx].rate;
     if (idx === formItems.length - 1 && updated[idx].particulars) updated.push(emptyItem(formItems.length + 1));
     setFormItems(updated);
@@ -162,7 +186,7 @@ export default function Quotation() {
     const validItems = formItems.filter(i => i.particulars.trim());
     if (qId && validItems.length > 0) {
       await supabase.from('quotation_items').insert(validItems.map((it, i) => ({
-        quotation_id: qId, sno: i + 1, particulars: it.particulars,
+        quotation_id: qId, sno: i + 1, particulars: it.particulars, description: it.description || '',
         qty: it.qty, load_value: it.load_value, rate: it.rate, amount: it.amount,
       })));
     }
@@ -222,7 +246,7 @@ export default function Quotation() {
     const itemRows = [
       ...filledIts.map((it, idx) => `<tr style="height:40px">
         <td style="border:1px solid #000;text-align:center;font-size:11pt;font-weight:bold">${idx + 1}</td>
-        <td style="border:1px solid #000;padding:4px 8px;font-size:11pt;font-weight:bold">${it.particulars}</td>
+        <td style="border:1px solid #000;padding:4px 8px;font-size:11pt;font-weight:bold">${it.particulars}${it.description?`<br><span style="font-size:9pt;font-weight:normal;font-style:italic;color:#555">${it.description}</span>`:''}</td>
         <td style="border:1px solid #000;text-align:center;font-size:11pt;font-weight:bold">${it.qty}</td>
         <td style="border:1px solid #000;text-align:center;font-size:11pt;font-weight:bold">${it.load_value||''}</td>
         <td style="border:1px solid #000;text-align:right;padding-right:6px;font-size:11pt;font-weight:bold">${it.rate?fmtAmt(it.rate):''}</td>
@@ -573,6 +597,7 @@ export default function Quotation() {
               {/* Items */}
               <div>
                 <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-2">Items</p>
+                <datalist id="particulars-list">{knownParticulars.map(n=><option key={n} value={n}/>)}</datalist>
                 <div className="overflow-x-auto rounded-xl border border-gray-200">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50">
@@ -590,8 +615,12 @@ export default function Quotation() {
                       {formItems.map((it,idx)=>(
                         <tr key={idx} className="border-t border-gray-100">
                           <td className="px-3 py-1 text-xs text-gray-400">{idx+1}</td>
-                          <td className="px-1 py-1"><input value={it.particulars} onChange={e=>updateItem(idx,'particulars',e.target.value)} placeholder="Description..."
-                            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300"/></td>
+                          <td className="px-1 py-1">
+                            <input value={it.particulars} onChange={e=>updateItem(idx,'particulars',e.target.value)} list="particulars-list" placeholder="e.g. PADDY CLEANING SECTION"
+                              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300"/>
+                            <input value={it.description||''} onChange={e=>updateItem(idx,'description',e.target.value)} placeholder="description / spec..."
+                              className="w-full border border-gray-100 rounded-lg px-2 py-1 text-[11px] italic text-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-200 mt-1"/>
+                          </td>
                           <td className="px-1 py-1"><input type="number" value={it.qty||''} onChange={e=>updateItem(idx,'qty',Number(e.target.value))}
                             className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-300"/></td>
                           <td className="px-1 py-1"><input type="number" value={it.load_value||''} onChange={e=>updateItem(idx,'load_value',Number(e.target.value))}
@@ -780,7 +809,7 @@ export default function Quotation() {
                       {previewItems.map((it,i)=>(
                         <tr key={i} className="h-8">
                           <td className="border border-gray-400 text-center font-bold">{i+1}</td>
-                          <td className="border border-gray-400 px-2 font-bold">{it.particulars}</td>
+                          <td className="border border-gray-400 px-2 font-bold">{it.particulars}{it.description&&<><br/><span className="font-normal italic text-gray-500 text-[9px]">{it.description}</span></>}</td>
                           <td className="border border-gray-400 text-center font-bold">{it.qty}</td>
                           <td className="border border-gray-400 text-center font-bold">{it.load_value||''}</td>
                           <td className="border border-gray-400 text-right pr-1 font-bold">{fmtAmt(it.rate)}</td>
