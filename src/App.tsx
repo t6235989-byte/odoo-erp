@@ -23,6 +23,8 @@ import PartyLedger from './modules/PartyLedger';
 import Backup from './modules/Backup';
 import Quotation from './modules/Quotation';
 import Contacts from './modules/Contacts';
+import OrderForm from './modules/OrderForm';
+import Letterhead from './modules/Letterhead';
 
 const moduleConfig: Record<ModuleId, { title: string; subtitle: string; color: string }> = {
   dashboard:    { title: '📊 Main Dashboard',      subtitle: 'Overview of all business operations',     color: '#7C3AED' },
@@ -45,6 +47,8 @@ const moduleConfig: Record<ModuleId, { title: string; subtitle: string; color: s
   appraisals:   { title: '⭐ Appraisals',           subtitle: 'Employee performance reviews & feedback',  color: '#D97706' },
   contacts:     { title: '📒 Number Diary',           subtitle: 'Contacts — painters, welders, vendors & more', color: '#0891B2' },
   quotation:    { title: '📄 Quotations',             subtitle: 'Create & export professional quotations',  color: '#0891B2' },
+  orderform:    { title: '🧾 Order Form',              subtitle: 'Create & print order forms with GST, advance & balance', color: '#6D28D9' },
+  letterhead:   { title: '✉️ Letterhead',              subtitle: 'Write anything on your company letterhead & print', color: '#1D4ED8' },
 };
 
 const ModuleRenderer: React.FC<{ module: ModuleId }> = ({ module }) => {
@@ -69,6 +73,8 @@ const ModuleRenderer: React.FC<{ module: ModuleId }> = ({ module }) => {
     case 'backup':        return <Backup />;
     case 'contacts':      return <Contacts />;
     case 'quotation':     return <Quotation />;
+    case 'orderform':     return <OrderForm />;
+    case 'letterhead':    return <Letterhead />;
     default:              return <Dashboard />;
   }
 };

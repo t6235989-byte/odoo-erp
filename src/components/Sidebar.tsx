@@ -10,7 +10,7 @@ import {
   LayoutDashboard, Package, DollarSign, ShoppingCart,
   Factory, Store, Users, FolderKanban,
   Megaphone, Wrench, MessageCircle, ChevronLeft, ChevronRight,
-  UserPlus, CalendarOff, Star
+  UserPlus, CalendarOff, Star, ClipboardList, Mail
 } from 'lucide-react';
 import type { ModuleId } from '../types';
 
@@ -36,6 +36,8 @@ const navGroups = [
       { id: 'partyledger' as ModuleId, label: 'Party Ledger', icon: LedgerIcon, color: '#7C3AED', bg: '#EDE9FE' },
       { id: 'backup' as ModuleId, label: 'Backup & Export', icon: BackupIcon, color: '#7C3AED', bg: '#EDE9FE' },
       { id: 'quotation' as ModuleId, label: 'Quotations', icon: QuotationIcon, color: '#0891B2', bg: '#CFFAFE' },
+      { id: 'orderform' as ModuleId, label: 'Order Form', icon: ClipboardList, color: '#6D28D9', bg: '#EDE9FE' },
+      { id: 'letterhead' as ModuleId, label: 'Letterhead', icon: Mail, color: '#1D4ED8', bg: '#DBEAFE' },
       { id: 'contacts' as ModuleId, label: 'Number Diary', icon: BookUser, color: '#0891B2', bg: '#CFFAFE' },
       { id: 'accounting' as ModuleId, label: 'Accounting', icon: DollarSign, color: '#16A34A', bg: '#DCFCE7' },
       { id: 'sales' as ModuleId, label: 'Sales & CRM', icon: ShoppingCart, color: '#2563EB', bg: '#DBEAFE' },

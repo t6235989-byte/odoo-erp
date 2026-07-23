@@ -16,6 +16,7 @@ type QTemplate = {
   signatoryText:string; showSignatory:boolean;
   terms:string; showTerms:boolean;
   respectText:string; showRespect:boolean;
+  printLayout: 'standard' | 'order_form' | 'letterhead';
 };
 
 const DEFAULT_TEMPLATE: QTemplate = {
@@ -31,6 +32,7 @@ const DEFAULT_TEMPLATE: QTemplate = {
   signatoryText:'AUTH. SIGNATORY', showSignatory:true,
   terms:'*GST 18% ON RICE MACHINERY.\n*QUOTATION IS VALID FOR 15 DAYS.\n*SUBJECT TO RAJPURA JURISDICTION.\n*ADVANCE 25% PAYMENT ON ORDER AND REST ON DELIVERY.\n*FREIGHT CHARGES EXTRA.', showTerms:true,
   respectText:'RESPECTED SIR, IN REFERENCE TO OUR DISCUSSION, WE ARE PLEASED TO PROVIDE OUR LOWEST PRICE FOR THE AFOREMENTIONED MACHINERY, DETAILED AS FOLLOWS:', showRespect:true,
+  printLayout: 'standard',
 };
 
 type QuotationItem = {
@@ -299,6 +301,38 @@ export default function Quotation() {
       }
     }
 
+    const headerHtml = template.printLayout === 'order_form' ? `
+      <div style="border:2px solid #4c1d95;padding:8px;margin-bottom:6px">
+        <div style="display:flex;justify-content:space-between;font-size:8pt;font-weight:bold;color:#4c1d95">
+          <div>OFFICE : ${template.address}</div>
+          <div style="text-align:center"><span style="border:1.5px solid #4c1d95;border-radius:14px;padding:2px 12px;font-weight:900">${template.quotationTitle}</span></div>
+          <div style="text-align:right">${template.showPhone?`M : ${template.phone}<br/>`:''}${template.showEmail?`E-mail : ${template.email}`:''}</div>
+        </div>
+        <div style="text-align:center;margin-top:6px">
+          ${template.showLogo ? `<img src="/logo.png" style="width:${template.logoSize*0.8}px;height:${template.logoSize*0.8}px;object-fit:contain;float:left" onerror="this.style.display='none'"/>` : ''}
+          <div style="font-size:${template.line1Size}pt;font-weight:900;letter-spacing:1px"><span style="color:${template.line1Color}">${template.line1}</span> <span style="color:${template.line2Color}">${template.line2}</span></div>
+        </div>
+      </div>` : template.printLayout === 'letterhead' ? `
+      <div style="text-align:center;margin-bottom:6px">
+        ${template.showLogo ? `<img src="/logo.png" style="width:${template.logoSize}px;height:${template.logoSize}px;object-fit:contain" onerror="this.style.display='none'"/>` : ''}
+        <div style="font-size:${template.line1Size}pt;font-weight:900;letter-spacing:2px"><span style="color:${template.line1Color}">${template.line1}</span> <span style="color:${template.line2Color}">${template.line2}</span></div>
+        ${template.showPhone ? `<div style="font-size:9pt;font-weight:bold;color:${template.line2Color}">M : ${template.phone}</div>` : ''}
+      </div>
+      <hr style="border:1.5px solid ${template.line2Color};margin:4px 0"/>` : `
+      <div style="display:flex;align-items:flex-start;margin-bottom:6px">
+        ${template.showLogo ? `<img src="/logo.png" style="width:${template.logoSize}px;height:${template.logoSize}px;object-fit:contain;margin-right:12px;flex-shrink:0" onerror="this.style.display='none'"/>` : ''}
+        <div style="flex:1">
+          ${template.showEmail ? `<div style="text-align:right;font-size:10pt;font-weight:bold">E-mail : ${template.email}</div>` : ''}
+          ${template.line1 ? `<div style="font-size:${template.line1Size}pt;font-weight:900;color:${template.line1Color};letter-spacing:3px;line-height:1.1">${template.line1}</div>` : ''}
+          ${template.line2 ? `<div style="font-size:${template.line2Size}pt;font-weight:900;color:${template.line2Color};letter-spacing:3px;line-height:1.1">${template.line2}</div>` : ''}
+          <div style="display:flex;justify-content:space-between;margin-top:3px">
+            ${template.showAddress ? `<span style="font-size:9pt;font-weight:bold">OFFICE : ${template.address}</span>` : ''}
+            ${template.showPhone ? `<span style="font-size:9pt;font-weight:bold;white-space:nowrap;margin-left:8px">M : ${template.phone}</span>` : ''}
+          </div>
+        </div>
+      </div>
+      <hr style="border:1.5px solid #000;margin:4px 0"/>`;
+
     printWindow.document.write(`<!DOCTYPE html><html><head><title>Quotation - ${previewQ.quotation_no}</title>
     <style>
       * { margin:0;padding:0;box-sizing:border-box; }
@@ -317,20 +351,7 @@ export default function Quotation() {
     </style>
     </head><body>
     <div class="page">
-      <!-- Header -->
-      <div style="display:flex;align-items:flex-start;margin-bottom:6px">
-        ${template.showLogo ? `<img src="/logo.png" style="width:${template.logoSize}px;height:${template.logoSize}px;object-fit:contain;margin-right:12px;flex-shrink:0" onerror="this.style.display='none'"/>` : ''}
-        <div style="flex:1">
-          ${template.showEmail ? `<div style="text-align:right;font-size:10pt;font-weight:bold">E-mail : ${template.email}</div>` : ''}
-          ${template.line1 ? `<div style="font-size:${template.line1Size}pt;font-weight:900;color:${template.line1Color};letter-spacing:3px;line-height:1.1">${template.line1}</div>` : ''}
-          ${template.line2 ? `<div style="font-size:${template.line2Size}pt;font-weight:900;color:${template.line2Color};letter-spacing:3px;line-height:1.1">${template.line2}</div>` : ''}
-          <div style="display:flex;justify-content:space-between;margin-top:3px">
-            ${template.showAddress ? `<span style="font-size:9pt;font-weight:bold">OFFICE : ${template.address}</span>` : ''}
-            ${template.showPhone ? `<span style="font-size:9pt;font-weight:bold;white-space:nowrap;margin-left:8px">M : ${template.phone}</span>` : ''}
-          </div>
-        </div>
-      </div>
-      <hr style="border:1.5px solid #000;margin:4px 0"/>
+      ${headerHtml}
 
       <!-- Customer / Quotation Info -->
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin:8px 0">
@@ -900,6 +921,17 @@ export default function Quotation() {
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* Print Layout Style */}
+              <div className="bg-purple-50 border border-purple-100 rounded-2xl p-4">
+                <label className="block text-xs font-bold text-purple-700 mb-2 uppercase tracking-wide">Print Style</label>
+                <select value={template.printLayout} onChange={e=>setTemplate({...template,printLayout:e.target.value as any})} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none">
+                  <option value="standard">Standard Quotation layout</option>
+                  <option value="order_form">Order Form style (bordered box, GSTIN/Bank strip on top)</option>
+                  <option value="letterhead">Letterhead style (plain header, no boxes)</option>
+                </select>
+                <p className="text-[11px] text-gray-500 mt-1.5">Changes how the printed quotation's header looks — the items and totals stay the same.</p>
               </div>
 
               {/* Logo */}
