@@ -142,15 +142,23 @@ const Purchase: React.FC = () => {
       if(filterMaxAmt && b.total_amount > Number(filterMaxAmt)) return false;
       if(searchText.trim()) {
         const q = searchText.trim().toLowerCase();
-        // Pull in this bill's payment notes/cheque numbers too, so searching
-        // "167825" or "cheque" finds the bill via its payment record.
+        // Pull in everything related to this bill — payments, cheque numbers,
+        // cheque status, line items — so one search box genuinely covers
+        // everything, not just the bill's own fields.
         const billPayments = payments.filter(p=>p.bill_id===b.id);
         const paymentNotes = billPayments.map(p=>p.note).filter(Boolean).join(' ');
+        const paymentChequeNos = billPayments.map(p=>p.cheque_no).filter(Boolean).join(' ');
+        const paymentChequeStatus = billPayments.map(p=>p.cheque_status).filter(Boolean).join(' ');
+        const paymentModes = billPayments.map(p=>p.payment_mode).filter(Boolean).join(' ');
+        const paymentAmounts = billPayments.map(p=>String(p.amount)).filter(Boolean).join(' ');
         const billItemsText = billItems.filter((i:any)=>i.bill_id===b.id).map((i:any)=>[i.product_name,i.description,i.hsn_code].filter(Boolean).join(' ')).join(' ');
         const haystack = [
-          b.bill_number, b.invoice_no, b.vendor_name, b.vendor_gstin, b.notes,
+          b.bill_number, b.invoice_no, b.vendor_name, b.vendor_gstin, b.buyer_gstin, b.notes,
+          b.vendor_phone, b.transport, b.vehicle_no, b.place_of_supply, b.eway_bill, b.status,
+          formatDate(b.bill_date), formatDate(b.due_date),
           String(b.total_amount), String(Math.round(b.total_amount)),
-          paymentNotes, billItemsText,
+          paymentNotes, paymentChequeNos, paymentChequeStatus, paymentModes, paymentAmounts,
+          billItemsText,
         ].filter(Boolean).join(' ').toLowerCase();
         if (!haystack.includes(q)) return false;
       }
