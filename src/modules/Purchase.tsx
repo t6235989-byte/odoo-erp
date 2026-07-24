@@ -5,6 +5,7 @@ import StatCard from '../components/StatCard';
 import { supabase } from '../lib/supabase';
 import { formatDate } from '../utils/cn';
 import { handleEnterAsTab } from '../lib/formNav';
+import { ChequeTemplate, DEFAULT_CHEQUE_TEMPLATE, buildChequeHTML, buildCalibrationTestHTML } from '../lib/chequePrint';
 
 type Vendor = { id?: string; name: string; phone: string; email: string; address: string; gstin?: string; };
 type Bill = {
@@ -95,6 +96,9 @@ const Purchase: React.FC = () => {
   const [billForm, setBillForm] = useState<Bill>(emptyBill);
   const [vendorForm, setVendorForm] = useState<Vendor>(emptyVendor);
   const [payForm, setPayForm] = useState<Payment>({ bill_id:'', vendor_name:'', payment_date:new Date().toISOString().split('T')[0], amount:0, note:'', payment_mode:'Cash', cheque_no:'', cheque_date:'', clearance_date:'', cheque_status:'N/A' });
+  const [chequeTemplate, setChequeTemplate] = useState<ChequeTemplate>(DEFAULT_CHEQUE_TEMPLATE);
+  const [showChequeCalibrate, setShowChequeCalibrate] = useState(false);
+  const [chequeTemplateSaving, setChequeTemplateSaving] = useState(false);
   const [items, setItems] = useState<BillItem[]>([emptyItem()]);
   const [editingBill, setEditingBill] = useState<Bill|null>(null);
   const [editingVendor, setEditingVendor] = useState<Vendor|null>(null);
@@ -175,7 +179,27 @@ const Purchase: React.FC = () => {
     setCreditNotes(cn||[]); setCreditNoteItems(cni||[]);
     setLoading(false);
   };
-  useEffect(()=>{ fetchData(); },[]);
+  useEffect(()=>{ fetchData(); loadChequeTemplate(); },[]);
+
+  const loadChequeTemplate = async () => {
+    const { data } = await supabase.from('app_settings').select('value').eq('key','cheque_template').single();
+    if (data?.value) { try { setChequeTemplate({...DEFAULT_CHEQUE_TEMPLATE, ...JSON.parse(data.value)}); } catch {} }
+  };
+  const saveChequeTemplate = async (t: ChequeTemplate) => {
+    setChequeTemplateSaving(true);
+    await supabase.from('app_settings').upsert({ key:'cheque_template', value: JSON.stringify(t) }, { onConflict:'key' });
+    setChequeTemplateSaving(false);
+  };
+  const printChequeTest = () => {
+    const w = window.open('', '_blank'); if (!w) return;
+    w.document.write(buildCalibrationTestHTML(chequeTemplate)); w.document.close();
+  };
+  const printChequeReal = () => {
+    if (!payForm.amount || !payForm.vendor_name) return;
+    const w = window.open('', '_blank'); if (!w) return;
+    w.document.write(buildChequeHTML(chequeTemplate, { payee: payForm.vendor_name, amount: payForm.amount, date: payForm.cheque_date || new Date().toISOString().split('T')[0] }));
+    w.document.close();
+  };
 
   const creditNoteTotalFor = (billId?: string) => billId ? creditNotes.filter(cn=>cn.bill_id===billId).reduce((s,cn)=>s+cn.total_amount,0) : 0;
   const totalCreditNotes = filteredBills.reduce((s,b)=>s+creditNoteTotalFor(b.id),0);
@@ -1574,11 +1598,16 @@ If a field is not visible on the invoice, use empty string "" for text fields or
               </div>
               {payForm.payment_mode==='Cheque'&&(
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2.5">
-                  <p className="text-xs font-semibold text-amber-700">🏦 Cheque Details</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-amber-700">🏦 Cheque Details</p>
+                    <button onClick={()=>setShowChequeCalibrate(true)} className="text-[10px] text-amber-700 underline">Calibrate print position</button>
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div><label className="block text-xs font-medium text-gray-700 mb-1">Cheque No.</label><input value={payForm.cheque_no} onChange={e=>setPayForm({...payForm,cheque_no:e.target.value})} placeholder="e.g. 167825" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"/></div>
                     <div><label className="block text-xs font-medium text-gray-700 mb-1">Cheque Date</label><input type="date" value={payForm.cheque_date} onChange={e=>setPayForm({...payForm,cheque_date:e.target.value})} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"/></div>
                   </div>
+                  <button onClick={printChequeReal} className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700">🖨️ Print This Cheque (₹{payForm.amount?payForm.amount.toLocaleString('en-IN'):'0'} to {payForm.vendor_name})</button>
+                  <p className="text-[10px] text-gray-500">Feed the blank Axis Bank cheque leaf into the printer, cheque no. facing the right way. First time? Run "Calibrate print position" above and test-print on plain paper before using a real leaf.</p>
                   <div><label className="block text-xs font-medium text-gray-700 mb-1">Cheque Status</label>
                     <div className="flex gap-1.5 flex-wrap">
                       {['Issued','Cleared','Bounced','Cancelled'].map(s=>(
@@ -1599,6 +1628,85 @@ If a field is not visible on the invoice, use empty string "" for text fields or
             <div className="flex justify-end gap-2 p-5 border-t border-gray-100">
               <button onClick={()=>{setShowPayModal(false);setEditingPayment(null);}} className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600">Cancel</button>
               <button onClick={savePayment} disabled={saving} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-60">{saving&&<Loader size={13} className="animate-spin"/>}{saving?'Saving...':editingPayment?'Update Payment':'Pay Now'}</button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}</AnimatePresence>
+
+      <AnimatePresence>{showChequeCalibrate&&(
+        <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto" onKeyDown={handleEnterAsTab}>
+          <motion.div initial={{scale:0.95,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0.95,opacity:0}} className="bg-white rounded-2xl shadow-2xl w-full max-w-lg my-8">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h2 className="font-bold text-gray-800">🖨️ Calibrate Cheque Print Position</h2>
+              <button onClick={()=>setShowChequeCalibrate(false)} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center"><X size={14}/></button>
+            </div>
+            <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto text-sm">
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-800 space-y-1">
+                <p><b>How to use this:</b></p>
+                <p>1. Click "Test Print on Plain Paper" below — it prints a grid + sample text at the current positions.</p>
+                <p>2. Hold the printed sheet up against a real blank cheque leaf, against a light/window, and check where each field lands.</p>
+                <p>3. Nudge the mm numbers below until the sample text lines up with Payee/Date/Amount lines on the real cheque, then Save.</p>
+                <p>4. Only print on a real cheque leaf once a test print lines up correctly.</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="block text-xs font-medium text-gray-700 mb-1">Cheque width (mm)</label><input type="number" value={chequeTemplate.pageWidth} onChange={e=>setChequeTemplate({...chequeTemplate,pageWidth:Number(e.target.value)})} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"/></div>
+                <div><label className="block text-xs font-medium text-gray-700 mb-1">Cheque height (mm)</label><input type="number" value={chequeTemplate.pageHeight} onChange={e=>setChequeTemplate({...chequeTemplate,pageHeight:Number(e.target.value)})} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"/></div>
+              </div>
+
+              <div className="border border-gray-200 rounded-xl p-3 space-y-2">
+                <p className="text-xs font-bold text-gray-600">PAYEE NAME</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div><label className="block text-[10px] text-gray-500 mb-1">From left (mm)</label><input type="number" value={chequeTemplate.payeeX} onChange={e=>setChequeTemplate({...chequeTemplate,payeeX:Number(e.target.value)})} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs"/></div>
+                  <div><label className="block text-[10px] text-gray-500 mb-1">From bottom (mm)</label><input type="number" value={chequeTemplate.payeeY} onChange={e=>setChequeTemplate({...chequeTemplate,payeeY:Number(e.target.value)})} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs"/></div>
+                </div>
+              </div>
+
+              <div className="border border-gray-200 rounded-xl p-3 space-y-2">
+                <p className="text-xs font-bold text-gray-600">DATE BOXES (8 boxes: D D M M Y Y Y Y)</p>
+                <div className="grid grid-cols-4 gap-2">
+                  {chequeTemplate.dateBoxesX.map((x,i)=>(
+                    <div key={i}><label className="block text-[10px] text-gray-500 mb-1">{'DDMMYYYY'[i]} left</label><input type="number" value={x} onChange={e=>{const arr=[...chequeTemplate.dateBoxesX];arr[i]=Number(e.target.value);setChequeTemplate({...chequeTemplate,dateBoxesX:arr});}} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs"/></div>
+                  ))}
+                </div>
+                <div><label className="block text-[10px] text-gray-500 mb-1">All date boxes — from bottom (mm)</label><input type="number" value={chequeTemplate.dateY} onChange={e=>setChequeTemplate({...chequeTemplate,dateY:Number(e.target.value)})} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs"/></div>
+              </div>
+
+              <div className="border border-gray-200 rounded-xl p-3 space-y-2">
+                <p className="text-xs font-bold text-gray-600">AMOUNT IN WORDS — LINE 1</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <div><label className="block text-[10px] text-gray-500 mb-1">Start left (mm)</label><input type="number" value={chequeTemplate.words1X} onChange={e=>setChequeTemplate({...chequeTemplate,words1X:Number(e.target.value)})} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs"/></div>
+                  <div><label className="block text-[10px] text-gray-500 mb-1">End left (mm)</label><input type="number" value={chequeTemplate.words1XEnd} onChange={e=>setChequeTemplate({...chequeTemplate,words1XEnd:Number(e.target.value)})} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs"/></div>
+                  <div><label className="block text-[10px] text-gray-500 mb-1">From bottom (mm)</label><input type="number" value={chequeTemplate.words1Y} onChange={e=>setChequeTemplate({...chequeTemplate,words1Y:Number(e.target.value)})} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs"/></div>
+                </div>
+              </div>
+
+              <div className="border border-gray-200 rounded-xl p-3 space-y-2">
+                <p className="text-xs font-bold text-gray-600">AMOUNT IN WORDS — LINE 2 (wrap)</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <div><label className="block text-[10px] text-gray-500 mb-1">Start left (mm)</label><input type="number" value={chequeTemplate.words2X} onChange={e=>setChequeTemplate({...chequeTemplate,words2X:Number(e.target.value)})} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs"/></div>
+                  <div><label className="block text-[10px] text-gray-500 mb-1">End left (mm)</label><input type="number" value={chequeTemplate.words2XEnd} onChange={e=>setChequeTemplate({...chequeTemplate,words2XEnd:Number(e.target.value)})} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs"/></div>
+                  <div><label className="block text-[10px] text-gray-500 mb-1">From bottom (mm)</label><input type="number" value={chequeTemplate.words2Y} onChange={e=>setChequeTemplate({...chequeTemplate,words2Y:Number(e.target.value)})} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs"/></div>
+                </div>
+              </div>
+
+              <div className="border border-gray-200 rounded-xl p-3 space-y-2">
+                <p className="text-xs font-bold text-gray-600">AMOUNT IN FIGURES (₹ box)</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <div><label className="block text-[10px] text-gray-500 mb-1">Start left (mm)</label><input type="number" value={chequeTemplate.figuresX} onChange={e=>setChequeTemplate({...chequeTemplate,figuresX:Number(e.target.value)})} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs"/></div>
+                  <div><label className="block text-[10px] text-gray-500 mb-1">End left (mm)</label><input type="number" value={chequeTemplate.figuresXEnd} onChange={e=>setChequeTemplate({...chequeTemplate,figuresXEnd:Number(e.target.value)})} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs"/></div>
+                  <div><label className="block text-[10px] text-gray-500 mb-1">From bottom (mm)</label><input type="number" value={chequeTemplate.figuresY} onChange={e=>setChequeTemplate({...chequeTemplate,figuresY:Number(e.target.value)})} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs"/></div>
+                </div>
+              </div>
+
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Font size (pt)</label><input type="number" value={chequeTemplate.fontSize} onChange={e=>setChequeTemplate({...chequeTemplate,fontSize:Number(e.target.value)})} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"/></div>
+            </div>
+            <div className="flex justify-between gap-2 p-5 border-t border-gray-100">
+              <button onClick={printChequeTest} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">Test Print on Plain Paper</button>
+              <div className="flex gap-2">
+                <button onClick={()=>setShowChequeCalibrate(false)} className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600">Close</button>
+                <button onClick={()=>saveChequeTemplate(chequeTemplate)} disabled={chequeTemplateSaving} className="px-5 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium">{chequeTemplateSaving?'Saving...':'Save Position'}</button>
+              </div>
             </div>
           </motion.div>
         </motion.div>
