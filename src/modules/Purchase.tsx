@@ -426,7 +426,7 @@ const Purchase: React.FC = () => {
       .sort((a,b)=> new Date(b.bill_date).getTime() - new Date(a.bill_date).getTime())[0];
     setBillForm(prev => ({
       ...prev, vendor_name: name,
-      vendor_phone: match?.phone || prev.vendor_phone || '',
+      vendor_phone: match?.phone || lastBill?.vendor_phone || prev.vendor_phone || '',
       vendor_gstin: match?.gstin || lastBill?.vendor_gstin || prev.vendor_gstin,
       transport: lastBill?.transport ?? prev.transport,
       place_of_supply: lastBill?.place_of_supply ?? prev.place_of_supply,
