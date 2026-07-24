@@ -105,15 +105,22 @@ export function buildChequeHTML(t: ChequeTemplate, data: { payee: string; amount
 
   const ddmmyyyy = data.date ? (() => { const [y, m, d] = data.date.split('-'); return (d + m + y).split(''); })() : [];
 
-  const dateTop = toTop(t.dateY, t.pageHeight);
+  // Shift the whole cheque-sized block to the middle of the printed page
+  // (both directions) instead of leaving it pinned to the top-left corner.
+  // This is a single uniform offset, so it doesn't disturb any of the
+  // field-to-field spacing already calibrated — everything moves together.
+  const offsetX = (PRINT_PAGE_WIDTH_MM - t.pageWidth) / 2;
+  const offsetY = (PRINT_PAGE_HEIGHT_MM - t.pageHeight) / 2;
+
+  const dateTop = offsetY + toTop(t.dateY, t.pageHeight);
   const dateBoxesHtml = t.dateBoxesX.map((x, i) =>
-    `<div style="position:absolute;left:${x}mm;top:${dateTop}mm;font-size:${t.fontSize}pt;font-weight:bold">${ddmmyyyy[i] || ''}</div>`
+    `<div style="position:absolute;left:${offsetX + x}mm;top:${dateTop}mm;font-size:${t.fontSize}pt;font-weight:bold">${ddmmyyyy[i] || ''}</div>`
   ).join('');
 
-  const payeeTop = toTop(t.payeeY, t.pageHeight);
-  const words1Top = toTop(t.words1Y, t.pageHeight);
-  const words2Top = toTop(t.words2Y, t.pageHeight);
-  const figuresTop = toTop(t.figuresY, t.pageHeight);
+  const payeeTop = offsetY + toTop(t.payeeY, t.pageHeight);
+  const words1Top = offsetY + toTop(t.words1Y, t.pageHeight);
+  const words2Top = offsetY + toTop(t.words2Y, t.pageHeight);
+  const figuresTop = offsetY + toTop(t.figuresY, t.pageHeight);
 
   return `<!DOCTYPE html><html><head><title>Print Cheque</title>
   <style>
@@ -124,11 +131,11 @@ export function buildChequeHTML(t: ChequeTemplate, data: { payee: string; amount
     .page { position:relative; width:${PRINT_PAGE_WIDTH_MM}mm; height:${PRINT_PAGE_HEIGHT_MM}mm; background:#fff; overflow:hidden; }
   </style></head><body>
   <div class="page">
-    <div style="position:absolute;left:${t.payeeX}mm;top:${payeeTop}mm;font-size:${t.fontSize}pt;font-weight:bold;white-space:nowrap">${data.payee.toUpperCase()}</div>
+    <div style="position:absolute;left:${offsetX + t.payeeX}mm;top:${payeeTop}mm;font-size:${t.fontSize}pt;font-weight:bold;white-space:nowrap">${data.payee.toUpperCase()}</div>
     ${dateBoxesHtml}
-    <div style="position:absolute;left:${t.words1X}mm;top:${words1Top}mm;font-size:${t.fontSize}pt;font-weight:bold;white-space:nowrap">${line1}</div>
-    ${line2 ? `<div style="position:absolute;left:${t.words2X}mm;top:${words2Top}mm;font-size:${t.fontSize}pt;font-weight:bold;white-space:nowrap">${line2}</div>` : ''}
-    <div style="position:absolute;left:${t.figuresX}mm;top:${figuresTop}mm;font-size:${t.fontSize}pt;font-weight:bold;white-space:nowrap">${data.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+    <div style="position:absolute;left:${offsetX + t.words1X}mm;top:${words1Top}mm;font-size:${t.fontSize}pt;font-weight:bold;white-space:nowrap">${line1}</div>
+    ${line2 ? `<div style="position:absolute;left:${offsetX + t.words2X}mm;top:${words2Top}mm;font-size:${t.fontSize}pt;font-weight:bold;white-space:nowrap">${line2}</div>` : ''}
+    <div style="position:absolute;left:${offsetX + t.figuresX}mm;top:${figuresTop}mm;font-size:${t.fontSize}pt;font-weight:bold;white-space:nowrap">${data.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
   </div>
   <script>window.onload=()=>{setTimeout(()=>window.print(),200)}</script>
   </body></html>`;
@@ -139,9 +146,11 @@ export function buildChequeHTML(t: ChequeTemplate, data: { payee: string; amount
 // only covers the cheque-leaf-sized area (top-left of the page), since
 // that's the only part that matters once the leaf is fed top-left-aligned.
 export function buildCalibrationTestHTML(t: ChequeTemplate): string {
-  let grid = `<div style="position:absolute;left:0;top:0;width:${t.pageWidth}mm;height:${t.pageHeight}mm;border:1px dashed #3b82f6"></div>`;
-  for (let x = 0; x <= t.pageWidth; x += 10) grid += `<div style="position:absolute;left:${x}mm;top:0;height:${t.pageHeight}mm;width:1px;background:#ccc"></div><div style="position:absolute;left:${x + 1}mm;top:1mm;font-size:6pt;color:#999">${x}</div>`;
-  for (let y = 0; y <= t.pageHeight; y += 10) grid += `<div style="position:absolute;top:${y}mm;left:0;width:${t.pageWidth}mm;height:1px;background:#ccc"></div><div style="position:absolute;top:${y + 1}mm;left:1mm;font-size:6pt;color:#999">${t.pageHeight - y}</div>`;
+  const offsetX = (PRINT_PAGE_WIDTH_MM - t.pageWidth) / 2;
+  const offsetY = (PRINT_PAGE_HEIGHT_MM - t.pageHeight) / 2;
+  let grid = `<div style="position:absolute;left:${offsetX}mm;top:${offsetY}mm;width:${t.pageWidth}mm;height:${t.pageHeight}mm;border:1px dashed #3b82f6"></div>`;
+  for (let x = 0; x <= t.pageWidth; x += 10) grid += `<div style="position:absolute;left:${offsetX + x}mm;top:${offsetY}mm;height:${t.pageHeight}mm;width:1px;background:#ccc"></div><div style="position:absolute;left:${offsetX + x + 1}mm;top:${offsetY + 1}mm;font-size:6pt;color:#999">${x}</div>`;
+  for (let y = 0; y <= t.pageHeight; y += 10) grid += `<div style="position:absolute;top:${offsetY + y}mm;left:${offsetX}mm;width:${t.pageWidth}mm;height:1px;background:#ccc"></div><div style="position:absolute;top:${offsetY + y + 1}mm;left:${offsetX + 1}mm;font-size:6pt;color:#999">${t.pageHeight - y}</div>`;
   return buildChequeHTML(t, { payee: 'TEST PAYEE NAME', amount: 12345.5, date: new Date().toISOString().split('T')[0] })
     .replace('<div class="page">', `<div class="page">${grid}`);
 }
