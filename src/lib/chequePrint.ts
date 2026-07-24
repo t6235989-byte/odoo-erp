@@ -41,8 +41,14 @@ export const DEFAULT_CHEQUE_TEMPLATE: ChequeTemplate = {
 // definitely supports, and calculate every field's position from that
 // page's own top-left corner — which a printer always honours, regardless
 // of which paper size it's using.
-const PRINT_PAGE_WIDTH_MM = 210;  // A4 width
-const PRINT_PAGE_HEIGHT_MM = 297; // A4 height
+//
+// The cheque leaf is wider than it is tall (203x93mm) — a landscape shape.
+// A cheque naturally gets hand-fed into a printer's manual tray long-edge
+// first, so the page must be set up as A4 LANDSCAPE (297x210mm), not
+// portrait — using portrait here is exactly what caused the printed text
+// to come out rotated 90° relative to the cheque leaf.
+const PRINT_PAGE_WIDTH_MM = 297;  // A4 landscape width
+const PRINT_PAGE_HEIGHT_MM = 210; // A4 landscape height
 
 const ONES = ['', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'TEN',
   'ELEVEN', 'TWELVE', 'THIRTEEN', 'FOURTEEN', 'FIFTEEN', 'SIXTEEN', 'SEVENTEEN', 'EIGHTEEN', 'NINETEEN'];
@@ -113,7 +119,7 @@ export function buildChequeHTML(t: ChequeTemplate, data: { payee: string; amount
   <style>
     * { margin:0;padding:0;box-sizing:border-box; }
     body { font-family:Arial,sans-serif; }
-    @media print { @page { size:A4 portrait; margin:0; } }
+    @media print { @page { size:A4 landscape; margin:0; } }
     @media screen { body{background:#eee;padding:20px} .page{box-shadow:0 0 8px rgba(0,0,0,.3)} }
     .page { position:relative; width:${PRINT_PAGE_WIDTH_MM}mm; height:${PRINT_PAGE_HEIGHT_MM}mm; background:#fff; overflow:hidden; }
   </style></head><body>
